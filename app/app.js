@@ -1884,6 +1884,15 @@
     return !!(window.FISupabase && window.FISupabase.isAnon && window.FISupabase.isAnon());
   }
 
+  /**
+   * 이 PC 시계가 서버보다 조금 뒤/앞이면, 갓 발급된 토큰이 "미래에 발급됨"으로 거부된다.
+   * 잠깐 뒤 다시 시도하면 시간이 흘러 통과한다(작은 오차). 큰 오차면 시계를 맞춰야 한다.
+   */
+  function isClockError(e) {
+    var m = (e && (e.message || e.error_description || e.msg || e.error)) || String(e || "");
+    return /issued at future|used before|not yet valid|\biat\b|\bnbf\b|clock skew/i.test(m);
+  }
+
   /** 역할에 없는 모드는 버튼째 감춘다 (열어 두면 저장만 막혀 이유를 알 수 없다) */
   function applyRoles() {
     var r = USER.roles || [];
@@ -1973,6 +1982,7 @@
       paintWho();
       render();
     }).catch(function (err) {
+      if (isClockError(err)) throw err;   // boot 가 잠깐 뒤 다시 시도한다
       // 서버가 안 되어도 접수 자체는 막지 않는다 — 이 브라우저에 저장하고 계속
       var msg = (err && err.message) || String(err);
       var hint = /relation .* does not exist|schema cache/i.test(msg)
@@ -2002,6 +2012,7 @@
       state.view = "e01";
       render();
     }).catch(function (err) {
+      if (isClockError(err)) throw err;   // boot 가 잠깐 뒤 다시 시도한다
       var msg = (err && err.message) || String(err);
       var hint = /relation .* does not exist|schema cache/i.test(msg)
         ? " supabase/schema.sql 을 SQL Editor 에서 실행했는지 확인하세요."
@@ -2012,8 +2023,20 @@
     });
   }
 
-  function boot() {
-    if (window.FISupabase) {
+  /** 세션을 확인해 접수자/전문가 화면 중 하나를 연다 (실패는 boot 로 던진다) */
+  function connectServer() {
+    return window.FISupabase.session().then(function (sess) {
+      // 세션이 없으면 로그인 벽을 세우지 않고 익명 세션으로 바로 접수자 화면을 연다.
+      if (!sess) return window.FISupabase.signInAnonymously().then(function () { return startReporter(); });
+      return window.FISupabase.loadMe().then(function (m) {
+        return (!m || m.anon) ? startReporter() : startExpert(m);
+      });
+    });
+  }
+
+  function boot(attempt) {
+    attempt = attempt || 1;
+    if (attempt === 1 && window.FISupabase) {
       window.FISupabase.onNotify(function (msg) { banner("demo", "(" + msg.split("\n")[0] + ")"); });
     }
     if (!window.FISupabase || !window.FISupabase.available()) {
@@ -2021,21 +2044,21 @@
       render();
       return;
     }
-    banner("connecting");
-    window.FISupabase.session().then(function (sess) {
-      // 세션이 없으면 로그인 벽을 세우지 않고 익명 세션으로 바로 접수자 화면을 연다.
-      if (!sess) {
-        return window.FISupabase.signInAnonymously().then(startReporter).catch(function (e) {
-          // 익명 로그인이 꺼져 있는 등 — 로컬 데모로라도 접수는 되게
-          banner("demo", "(익명 접속 불가: " + ((e && e.message) || e) + " — Supabase Auth 에서 Anonymous sign-ins 를 켜세요)");
-          render();
-        });
+    banner("connecting", attempt > 1 ? "다시 시도 중… (" + attempt + ")" : undefined);
+    connectServer().catch(function (e) {
+      var msg = (e && e.message) || String(e);
+      // 시계 오차 — 최대 3번까지 간격을 늘려 가며 재시도
+      if (isClockError(e) && attempt < 4) {
+        setTimeout(function () { boot(attempt + 1); }, 1200 * attempt);
+        return;
       }
-      return window.FISupabase.loadMe().then(function (m) {
-        return (!m || m.anon) ? startReporter() : startExpert(m);
-      });
-    }).catch(function (e) {
-      banner("demo", "(연결 실패: " + ((e && e.message) || e) + ")");
+      if (isClockError(e)) {
+        banner("demo", "(연결 실패: 이 PC 시계가 실제 시간과 어긋나 있습니다 — Windows 설정 → 날짜 및 시간 → '지금 동기화' 후 새로고침)");
+      } else if (/anonymous|not enabled|disabled|signups? not allowed|422/i.test(msg)) {
+        banner("demo", "(익명 접속 불가: " + msg + " — Supabase Auth 에서 Anonymous sign-ins 를 켜세요)");
+      } else {
+        banner("demo", "(연결 실패: " + msg + ")");
+      }
       render();
     });
   }
