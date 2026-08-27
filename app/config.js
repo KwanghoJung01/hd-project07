@@ -20,10 +20,10 @@
 
   root.APP_CONFIG = {
     // 예: 'https://abcdefghijklmnop.supabase.co'
-    SUPABASE_URL: '',
+    SUPABASE_URL: 'https://mbizwmtfnfhrvdzrzryq.supabase.co',
 
     // 예: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...'  (anon / public 키)
-    SUPABASE_ANON_KEY: '',
+    SUPABASE_ANON_KEY: 'sb_publishable_huXL8yar_yNA1MDK2jFb-A_BLfA_ww4',
 
     /**
      * 서버 모드로 쓸지.
@@ -34,7 +34,7 @@
      *
      * 커밋하지 않고 잠깐 확인만 하려면 주소 뒤에 ?supabase=1 을 붙이면 됩니다.
      */
-    USE_SUPABASE: false,
+    USE_SUPABASE: true,
 
     /**
      * 이메일이 아닌 것(업체코드·사번 등)으로 로그인하는 화면에서,
