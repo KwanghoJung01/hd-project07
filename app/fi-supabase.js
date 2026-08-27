@@ -440,6 +440,22 @@
   }
 
   /**
+   * 서버 공용 AI 설정 — 관리자만. 키 원문은 서버가 절대 돌려주지 않는다(끝 4자리만).
+   * get: { provider, model, key_set, key_hint, updated_at } | null
+   */
+  function getAiConfig() {
+    return db().rpc('get_ai_config').then(function (r) {
+      if (r.error) throw r.error;
+      return (r.data && r.data[0]) || null;
+    });
+  }
+  /** key 를 빈 문자열로 보내면 기존 키 유지(모델만 변경). */
+  function setAiConfig(provider, key, model) {
+    return db().rpc('set_ai_config', { p_provider: provider || 'gemini', p_key: key || '', p_model: model || '' })
+      .then(function (r) { if (r.error) throw r.error; return true; });
+  }
+
+  /**
    * 다음 이슈 번호 — 서버 시퀀스에서 원자적으로 뽑는다.
    * 기기·접수자마다 로컬 카운터를 쓰면 번호가 겹쳐 code 유니크 제약에 걸린다.
    */
@@ -457,7 +473,8 @@
     available: available, client: db,
     signIn: signIn, signInAnonymously: signInAnonymously, isAnon: isAnon,
     signOut: signOut, session: session, loadMe: loadMe, whoami: whoami,
-    loadDb: loadDb, saveDb: saveDb, nextNo: nextNo, aiVision: aiVision, pathTo: pathTo,
+    loadDb: loadDb, saveDb: saveDb, nextNo: nextNo, aiVision: aiVision,
+    getAiConfig: getAiConfig, setAiConfig: setAiConfig, pathTo: pathTo,
     uploadMedia: uploadMedia, signedUrl: signedUrl,
     attachmentPaths: attachmentPaths, mediaPath: mediaPath,
     conclusionOf: conclusionOf, replyOf: replyOf, resolutionOf: resolutionOf,

@@ -126,6 +126,7 @@
     mediaURLs: {},          // media_id → objectURL 캐시
     activeSeg: null,        // 근거 점프로 강조된 음성 세그먼트 {media_id, index}
     settingsOpen: false,
+    aiConfig: null,         // 관리자가 설정 열면 서버 공용 AI 설정(현재값) 채워짐
     editReporter: false,    // C-01 접수자 이름·이메일 편집 펼침
     busy: null,             // 비동기 작업 안내문(미디어 분석 중 등)
     notice: null            // 일회성 안내문(STT 미지원/실패 등)
@@ -806,6 +807,43 @@
   }
 
   /**
+   * 관리자 전용 — 서버 공용 AI 키·모델. 여기서 넣으면 모든 사용자가 개별 설정 없이 쓴다.
+   * 키는 관리자 브라우저에서 저장 시 한 번 지나갈 뿐, 서버(DB)에만 보관되고
+   * 다시 화면으로는 끝 4자리만 내려온다. 모델 변경도 여기서 즉시 반영.
+   */
+  function adminAiConfigHTML() {
+    if (!isAdmin()) return "";
+    var c = state.aiConfig;
+    var proxy = (window.APP_CONFIG || {}).AI_PROXY;
+    var modelOpts = E.aivision.GEMINI_MODELS.map(function (m) {
+      var sel = c && c.model === m.id ? " selected" : "";
+      return '<option value="' + esc(m.id) + '"' + sel + '>' + esc(m.label) + '</option>';
+    }).join("");
+    var freeModel = (c && c.model && !E.aivision.GEMINI_MODELS.some(function (m) { return m.id === c.model; })) ? c.model : "";
+    return '<div class="notice" style="border:1px solid rgba(0,0,0,.1);padding:12px;border-radius:8px;margin-bottom:12px">' +
+      '<b>🔐 서버 공용 AI 키 (관리자)</b>' +
+      '<p class="muted" style="margin:4px 0 10px">여기에 넣으면 <b>모든 사용자</b>가 개별 키 없이 사진·영상 AI 분석을 씁니다. ' +
+        '키는 서버에만 저장되고 다른 사용자 화면으로 내려가지 않습니다.' +
+        (proxy ? "" : ' <b style="color:#c8341f">※ 지금 config.js 의 AI_PROXY 가 꺼져 있어 실제로는 적용되지 않습니다.</b>') + '</p>' +
+      '<label class="fld" for="ai-cfg-provider">제공사</label>' +
+      '<select id="ai-cfg-provider"><option value="gemini"' + (!c || c.provider === "gemini" ? " selected" : "") + '>Gemini (무료 티어)</option></select>' +
+      '<label class="fld" for="ai-cfg-model">모델</label>' +
+      '<select id="ai-cfg-model">' + modelOpts + '</select>' +
+      '<label class="fld" for="ai-cfg-model-free">모델 직접 입력 (선택 — 비우면 위 선택값. 예: gemini-3.7-flash)</label>' +
+      '<input type="text" id="ai-cfg-model-free" placeholder="기본값 사용" value="' + esc(freeModel) + '">' +
+      '<label class="fld" for="ai-cfg-key">API 키' +
+        (c && c.key_set ? ' <span class="muted">— 현재 설정됨 (' + esc(c.key_hint || "****") + '). 바꿀 때만 입력</span>' : '') + '</label>' +
+      '<input type="password" id="ai-cfg-key" autocomplete="new-password" placeholder="' +
+        (c && c.key_set ? "(변경하지 않으려면 비워 두세요)" : "Google AI Studio 키") + '">' +
+      '<div class="row-actions" style="margin-top:8px">' +
+        '<button class="primary" data-action="save-ai-config" style="margin-top:0">서버에 저장</button>' +
+        (c && c.updated_at ? '<span class="muted">마지막 변경 ' + fmt(c.updated_at) + '</span>' : '') +
+      '</div>' +
+      '<p class="muted" style="margin-top:6px">먼저 <code>supabase/functions/ai-vision</code> 를 배포해야 합니다 (SUPABASE-설정.md 8장).</p>' +
+      '</div>';
+  }
+
+  /**
    * ⚙ 설정 — 역할에 따라 내용이 다르다.
    *   · 접수자: AI 제공사·키 같은 것은 보여 주지 않는다(불필요·혼란). 안내만.
    *   · 전문가: STT 엔진 / AI 분석 제공사(Gemini·Claude·OpenAI) / 키 / 모델.
@@ -831,10 +869,11 @@
     return '' +
       '<section class="card" id="settings-view">' +
       '<h2>⚙ 설정 <span class="sr">(전문가)</span></h2>' +
+      adminAiConfigHTML() +
       (serverVisionOn()
-        ? '<p class="notice">🔍 <b>서버 공용 AI 사용 중</b> — 모든 사용자가 개별 키 없이 사진·영상 AI 분석을 씁니다. 키는 서버(Edge Function)에만 있습니다. 아래 개별 키 항목은 무시됩니다.</p>'
+        ? '<p class="notice">🔍 <b>서버 공용 AI 사용 중</b> — 모든 사용자가 개별 키 없이 사진·영상 AI 분석을 씁니다. 아래 개별 키 항목은 무시됩니다.</p>'
         : '') +
-      '<p class="muted">API 키는 이 브라우저의 localStorage 에만 저장되며 접수 데이터와 함께 전송되지 않습니다. 키가 없으면 완전 오프라인 규칙 엔진으로 동작합니다.</p>' +
+      '<p class="muted">아래 개별 API 키는 <b>이 브라우저에만</b> 저장됩니다(서버 공용 키가 없을 때만 사용). 키가 없으면 완전 오프라인 규칙 엔진으로 동작합니다.</p>' +
 
       '<label class="fld" for="set-stt">음성 인식(STT) 엔진</label>' +
       '<select id="set-stt">' +
@@ -1631,8 +1670,39 @@
       case "dismiss-notice": state.notice = null; break;
 
       /* 설정 */
-      case "open-settings": state.settingsOpen = true; break;
+      case "open-settings": {
+        state.settingsOpen = true;
+        // 관리자면 서버 공용 AI 설정(현재 값)을 읽어 온다 — 키 원문은 안 옴, 끝 4자리만.
+        if (isAdmin() && window.FISupabase && window.FISupabase.getAiConfig) {
+          window.FISupabase.getAiConfig().then(function (c) {
+            state.aiConfig = c || { provider: "gemini", model: "", key_set: false };
+            render();
+          }).catch(function () { state.aiConfig = null; });
+        }
+        break;
+      }
       case "close-settings": state.settingsOpen = false; break;
+      case "save-ai-config": {
+        var av = function (id) { var e = document.getElementById(id); return e ? e.value.trim() : ""; };
+        var prov = av("ai-cfg-provider") || "gemini";
+        var mdl = av("ai-cfg-model-free") || av("ai-cfg-model") || "";
+        var newKey = av("ai-cfg-key");   // 비우면 서버가 기존 키 유지
+        state.busy = "서버 공용 AI 설정 저장 중…"; render();
+        window.FISupabase.setAiConfig(prov, newKey, mdl)
+          .then(function () { return window.FISupabase.getAiConfig(); })
+          .then(function (c) {
+            state.aiConfig = c;
+            state.busy = null;
+            state.notice = "서버 공용 AI 설정을 저장했습니다. 모든 사용자에게 즉시 적용됩니다.";
+            render();
+          })
+          .catch(function (e) {
+            state.busy = null;
+            state.notice = "저장 실패: " + ((e && e.message) || e);
+            render();
+          });
+        return;
+      }
       case "save-settings": {
         var val = function (id) { var e = document.getElementById(id); return e ? e.value.trim() : ""; };
         settings.stt_engine = val("set-stt") || settings.stt_engine;
@@ -2093,6 +2163,10 @@
   /** 지금 익명(접수자) 세션인지 */
   function isAnonSession() {
     return !!(window.FISupabase && window.FISupabase.isAnon && window.FISupabase.isAnon());
+  }
+  /** 관리자 계정인지 (서버 모드 + roles 에 admin) */
+  function isAdmin() {
+    return SERVER && (USER.roles || []).indexOf("admin") >= 0;
   }
 
   /**

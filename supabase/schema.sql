@@ -201,6 +201,58 @@ returns bigint language sql security definer set search_path = public as $fn$
   select nextval('public.issue_no_seq');
 $fn$;
 
+-- ── AI 분석 서버 공용 키 (관리자가 앱에서 관리) ────────────────────────
+--   관리자가 ⚙ 설정에서 제공사·키·모델을 넣으면 여기 한 줄로 저장된다.
+--   · 키는 **관리자 브라우저에만** 잠깐 지나가고(입력·저장 시) 그 뒤로는 서버에만 있다.
+--   · 일반 사용자 브라우저로는 키가 절대 내려가지 않는다 (RLS: 이 표는 관리자만 읽음).
+--   · Edge Function(ai-vision)이 service_role 로 읽어 실제 호출에 쓴다.
+--   · 모델 변경은 이 한 줄만 바꾸면 됨 — 함수 재배포 불필요.
+create table if not exists public.ai_config (
+  id         int primary key default 1,
+  provider   text not null default 'gemini',
+  api_key    text,
+  model      text,
+  updated_by uuid,
+  updated_at timestamptz not null default now(),
+  constraint ai_config_singleton check (id = 1)
+);
+alter table public.ai_config enable row level security;
+drop policy if exists ai_config_admin on public.ai_config;
+-- 관리자만 읽고 쓴다. (Edge Function 은 RLS 를 우회하는 service_role 로 접근)
+create policy ai_config_admin on public.ai_config for all to authenticated
+  using (public.is_admin()) with check (public.is_admin());
+
+-- 앱(관리자 화면)용 — **키 원문은 절대 돌려주지 않는다.** 설정 여부와 끝 4자리만.
+create or replace function public.get_ai_config()
+returns table (provider text, model text, key_set boolean, key_hint text, updated_at timestamptz)
+language sql security definer set search_path = public as $fn$
+  select c.provider, c.model,
+         (c.api_key is not null and length(btrim(c.api_key)) > 0) as key_set,
+         case when c.api_key is not null and length(c.api_key) >= 4
+              then '****' || right(c.api_key, 4) else null end as key_hint,
+         c.updated_at
+  from public.ai_config c where c.id = 1;
+$fn$;
+
+-- 관리자만. key 를 비워서(null) 보내면 기존 키를 유지한다(모델만 바꿀 때).
+create or replace function public.set_ai_config(p_provider text, p_key text, p_model text)
+returns void language plpgsql security definer set search_path = public as $fn$
+begin
+  if not public.is_admin() then
+    raise exception '관리자만 AI 설정을 바꿀 수 있습니다.';
+  end if;
+  insert into public.ai_config (id, provider, api_key, model, updated_by, updated_at)
+  values (1, coalesce(nullif(btrim(p_provider), ''), 'gemini'),
+          nullif(btrim(p_key), ''), nullif(btrim(p_model), ''), auth.uid(), now())
+  on conflict (id) do update set
+    provider   = excluded.provider,
+    api_key    = coalesce(excluded.api_key, public.ai_config.api_key),  -- 빈 키면 유지
+    model      = excluded.model,
+    updated_by = excluded.updated_by,
+    updated_at = now();
+end;
+$fn$;
+
 /**
  * 상태 전이 규칙.
  *
@@ -480,6 +532,8 @@ revoke all on function public.has_role(text)                from public, anon;
 revoke all on function public.is_anon_user()                from public, anon;
 revoke all on function public.is_staff()                    from public, anon;
 revoke all on function public.next_issue_no()               from public, anon;
+revoke all on function public.get_ai_config()               from public, anon;
+revoke all on function public.set_ai_config(text, text, text) from public, anon;
 revoke all on function public.can_transition(text, text)    from public, anon;
 revoke all on function public.guard_transition()            from public, anon;
 revoke all on function public.guard_knowledge()             from public, anon;
@@ -489,6 +543,8 @@ grant execute on function public.has_role(text)             to authenticated;
 grant execute on function public.is_anon_user()             to authenticated;
 grant execute on function public.is_staff()                 to authenticated;
 grant execute on function public.next_issue_no()            to authenticated;
+grant execute on function public.get_ai_config()            to authenticated;
+grant execute on function public.set_ai_config(text, text, text) to authenticated;
 grant execute on function public.can_transition(text, text) to authenticated;
 grant execute on function public.guard_transition()         to authenticated;
 grant execute on function public.guard_knowledge()          to authenticated;

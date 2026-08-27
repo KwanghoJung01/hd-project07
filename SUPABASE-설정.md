@@ -218,36 +218,40 @@ on conflict (user_id) do update set roles = excluded.roles;
 
 ## 8. (선택) 사진·영상 AI 분석 — 서버 공용 키
 
-개별 사용자가 각자 API 키를 넣지 않고, **관리자가 한 번만 넣으면 모두가 바로** 쓰게 하는 방법입니다.
-키는 브라우저에 나가지 않고 Edge Function 안에만 있습니다. (무료 티어로 충분)
+개별 사용자가 각자 API 키를 넣지 않고, **관리자가 앱에서 한 번만 넣으면 모두가 바로** 쓰는 방법입니다.
+키는 다른 사용자 브라우저로 절대 내려가지 않습니다.
 
-### 8.1 함수 배포
+### 8.1 함수 배포 (1회)
 
-1. 대시보드 → **Edge Functions** → **Deploy a new function**
-2. 이름 `ai-vision`
-3. `supabase/functions/ai-vision/index.ts` 내용을 **그대로 붙여넣기** → **Deploy**
-   (CLI 를 쓴다면 `supabase functions deploy ai-vision`)
+1. 대시보드 → **Edge Functions** → **Deploy a new function** → 이름 `ai-vision`
+2. `supabase/functions/ai-vision/index.ts` 내용을 **그대로 붙여넣기** → **Deploy**
+   (CLI 면 `supabase functions deploy ai-vision`)
 
-### 8.2 키 넣기 (Secret)
+### 8.2 켜기
 
-대시보드 → Edge Functions → **ai-vision → Secrets** (또는 Project Settings → Edge Functions → Secrets):
+`app/config.js` 에서 `AI_PROXY: true` 로 바꾸고 커밋 (임시 확인은 주소 뒤 `?ai=1`).
 
-| 이름 | 값 |
-|---|---|
-| `GEMINI_API_KEY` | Google AI Studio 키 (**Field-Insight 전용 키 권장** — 다른 프로젝트와 나눠 쓰면 일일 한도 공유) |
-| `GEMINI_MODEL` (선택) | `gemini-3.6-flash` (비우면 이 값이 기본) |
+### 8.3 키·모델 넣기 — **앱에서**
 
-### 8.3 켜기
+관리자(roles 에 `admin`)로 로그인 → **⚙ 설정** → 맨 위 **"🔐 서버 공용 AI 키 (관리자)"**:
 
-`app/config.js` 에서 `AI_PROXY: true` 로 바꾸고 커밋
-(커밋 없이 잠깐 확인만 하려면 주소 뒤에 `?ai=1`).
+- **제공사**: Gemini
+- **모델**: `gemini-3.6-flash` 등 (드롭다운 또는 직접 입력 — **모델 변경은 여기서 즉시 반영, 재배포 불필요**)
+- **API 키**: Google AI Studio 키 → **서버에 저장**
+
+저장하면 `ai_config` 표(관리자만 읽기)에 들어가고, Edge Function 이 서버에서 읽어 씁니다.
+화면에는 이후 끝 4자리(`****abcd`)만 표시됩니다.
+
+> 키를 대시보드 Secret 으로 넣고 싶으면 (앱 저장 대신) ai-vision → Secrets 에
+> `GEMINI_API_KEY` / `GEMINI_MODEL` 을 넣어도 됩니다. **DB 설정이 우선**, 없으면 Secret 을 씁니다.
 
 ### 확인
 
-접수 화면에서 **사진을 첨부**하면 상단에 "🔍 첨부한 사진·영상을 AI가 함께 분석합니다" 가 뜨고,
-`다음(내용 분석)` 을 누르면 서버가 분석합니다. 함수·키가 없으면 자동으로 오프라인 규칙 엔진으로 내려갑니다(접수는 항상 됨). 무료 한도를 넘으면 "오늘 한도 소진" 안내 후 규칙 엔진으로 계속됩니다.
+접수 화면에서 **사진 첨부** → "🔍 …AI가 함께 분석합니다" → `다음(내용 분석)` → 서버가 분석 → E-03.
+함수·키가 없으면 오프라인 규칙 엔진으로 자동 강등(접수는 항상 됨). 무료 한도 초과 시 "오늘 한도 소진" 안내 후 규칙 엔진.
 
-> `GEMINI_API_KEY` 는 커밋 금지 — Secret 에만. `config.js` 의 `AI_PROXY` 는 켜기/끄기 스위치일 뿐이라 커밋해도 됩니다.
+> **커밋 금지**: API 키. `config.js` 의 `AI_PROXY` 스위치는 커밋해도 됩니다.
+> **한도**: Field-Insight 전용 키 권장 — 다른 프로젝트와 같은 키면 일일 한도를 나눠 씁니다.
 
 ---
 
