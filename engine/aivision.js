@@ -38,10 +38,16 @@
   ];
 
   var PROMPT =
-    "당신은 건설장비(굴착기) 정비 접수를 돕는 분석가입니다. 첨부된 현장 사진을 보고 " +
-    "반드시 아래 키를 가진 JSON 객체만 출력하세요(다른 텍스트 금지):\n" +
-    '{"summary":"현상 한 줄 요약(한국어)","observed":["보이는 장비/부품(한국어)"],' +
-    '"hazards":["화재·연기·누유 등 위험 신호(없으면 빈 배열)"]}';
+    "당신은 건설장비(굴착기) 정비 접수를 돕는 분석가입니다. 첨부된 현장 사진(또는 영상에서 뽑은 프레임들)을 " +
+    "자세히 보고, 반드시 아래 키를 가진 JSON 객체만 출력하세요(마크다운·설명문 금지):\n" +
+    '{' +
+    '"summary":"핵심을 한 줄로(한국어)",' +
+    '"description":"사진에 실제로 보이는 것을 구체적으로 3~5문장(한국어). 장비 부위, 색·형태, 오염·손상·누유·균열·이물질, 계기판/경고등 표시, 촬영 각도·거리. 추측이면 \'~로 보임\'.",' +
+    '"frame_notes":["프레임이 2장 이상이면 각 프레임을 \'1: ...\' \'2: ...\' 형식으로. 프레임 간 변화(움직임·상태 차이)를 적을 것. 1장이면 빈 배열."],' +
+    '"observed":["보이는 장비/부품 명칭(한국어)"],' +
+    '"assessment":"정비 관점 소견 1~3문장 — 가능한 원인/점검 포인트. 단정하지 말 것.",' +
+    '"hazards":["화재·연기·심한 누유·균열·전도 위험 등(없으면 빈 배열)"]' +
+    '}';
 
   /** data URI → {media_type, base64} (순수 함수 — 단위 테스트 대상) */
   function parseDataURI(uri) {
@@ -58,10 +64,14 @@
     if (start < 0 || end <= start) return null;
     try {
       var obj = JSON.parse(t.slice(start, end + 1));
+      var arr = function (v) { return Array.isArray(v) ? v.map(String) : []; };
       return {
         summary: String(obj.summary || ""),
-        observed: Array.isArray(obj.observed) ? obj.observed.map(String) : [],
-        hazards: Array.isArray(obj.hazards) ? obj.hazards.map(String) : []
+        description: String(obj.description || ""),
+        assessment: String(obj.assessment || ""),
+        frame_notes: arr(obj.frame_notes),
+        observed: arr(obj.observed),
+        hazards: arr(obj.hazards)
       };
     } catch (e) { return null; }
   }

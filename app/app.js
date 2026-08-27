@@ -556,6 +556,7 @@
     var adapterV = useServer ? null : visionAdapter();
     var visual = state.draftMedia.filter(function (m) { return m.kind === "image" || m.kind === "video"; });
     if ((!useServer && !adapterV) || !visual.length) return Promise.resolve(null);
+    var hasVideo = visual.some(function (m) { return m.kind === "video"; });
     var jobs = visual.map(function (m) {
       return window.FI_MEDIA.get(m.media_id).then(function (rec) {
         if (!rec || !rec.blob) return [];
@@ -568,9 +569,21 @@
       var images = [];
       lists.forEach(function (l) { l.forEach(function (u) { if (images.length < 3) images.push(u); }); });
       if (!images.length) return null;
+      // 모델에 맥락을 준다 — 영상이면 프레임이 시간 순서라는 것, 접수자 설명
+      var ctx = (hasVideo
+        ? "첨부는 영상에서 시간 순서로 뽑은 프레임 " + images.length + "장입니다. 프레임 간 변화를 관찰하세요.\n"
+        : "첨부는 현장 사진 " + images.length + "장입니다.\n") +
+        (contextText ? "접수자 설명: " + contextText : "");
       return useServer
-        ? window.FISupabase.aiVision({ images: images, context: contextText })
-        : adapterV.analyzeMedia({ images: images, context: contextText });
+        ? window.FISupabase.aiVision({ images: images, context: ctx })
+        : adapterV.analyzeMedia({ images: images, context: ctx });
+    }).then(function (findings) {
+      // 호출은 됐는데 내용이 비면 사용자가 "결과가 없다"고 느낀다 → 명확히 알린다
+      if (findings && !findings.summary && !findings.description) {
+        state.notice = "AI가 사진에서 특징을 읽어 내지 못했습니다. 더 밝고 가까운 사진으로 다시 시도해 보세요. (접수는 계속됩니다)";
+        return null;
+      }
+      return findings;
     }).catch(function (err) {
       state.notice = aiErrorNotice(err);
       return null;
@@ -1170,7 +1183,11 @@
         ? '<h3>첨부 (' + state.draftMedia.length + '건)</h3>' + attachmentListHTML(state.draftMedia, false)
         : "") +
       (d.mediaFindings
-        ? '<p class="notice">🖼 미디어 분석: ' + esc(d.mediaFindings.summary || "") + '</p>'
+        ? '<div class="notice"><b>🖼 AI가 본 사진·영상</b><br>' +
+          esc(d.mediaFindings.description || d.mediaFindings.summary || "특징을 읽어 내지 못했습니다.") +
+          ((d.mediaFindings.hazards || []).length
+            ? '<br><span style="color:var(--danger)">⚠ ' + esc(d.mediaFindings.hazards.join(", ")) + '</span>' : "") +
+          '</div>'
         : "") +
       '<div class="origin">고객 원문 “' + esc(d.text) + '”</div>' +
       '<button class="primary" id="btn-submit-issue" data-action="submit-issue">접수하기</button>' +
@@ -1437,10 +1454,20 @@
     html += '<section class="card" id="ai-section"><h3>AI 1차 분석 <span class="sr">(E-03 · Mock Rule Engine)</span></h3>';
     if (issue.media_findings) {
       var mf = issue.media_findings;
-      html += '<div class="simcase" id="media-findings"><b>🖼 미디어 분석</b> <span class="muted">(정밀 모드 · 이미지 ' + (mf.image_count || 0) + '장)</span>' +
-        '<br>현상 요약: ' + esc(mf.summary || "—") +
-        '<br>보이는 장비/부품: ' + esc((mf.observed || []).join(", ") || "—") +
-        ((mf.hazards || []).length ? '<br><span style="color:var(--danger)">⚠ 위험 신호: ' + esc(mf.hazards.join(", ")) + '</span>' : "") +
+      var row = function (k, v) { return v ? '<div style="margin-top:6px"><b>' + k + '</b><br>' + esc(v) + '</div>' : ""; };
+      html += '<div class="simcase" id="media-findings">' +
+        '<b>🖼 사진·영상 AI 분석</b> <span class="muted">(' +
+          esc(mf.provider || "AI") + (mf.model ? " · " + esc(mf.model) : "") +
+          (mf.image_count ? " · 프레임 " + mf.image_count + "장" : "") + ')</span>' +
+        row("한 줄 요약", mf.summary) +
+        row("보이는 것", mf.description) +
+        ((mf.frame_notes || []).length
+          ? '<div style="margin-top:6px"><b>프레임별</b><ul style="margin:2px 0 0 18px">' +
+            mf.frame_notes.map(function (n) { return '<li>' + esc(n) + '</li>'; }).join("") + '</ul></div>'
+          : "") +
+        row("정비 소견", mf.assessment) +
+        ((mf.observed || []).length ? '<div style="margin-top:6px"><b>부품/계통</b><br>' + esc(mf.observed.join(", ")) + '</div>' : "") +
+        ((mf.hazards || []).length ? '<div style="margin-top:6px;color:var(--danger)"><b>⚠ 위험 신호</b><br>' + esc(mf.hazards.join(", ")) + '</div>' : "") +
         '</div>';
     }
     if (!issue.ai_analysis) {
