@@ -227,23 +227,19 @@ on conflict (user_id) do update set roles = excluded.roles;
 2. `supabase/functions/ai-vision/index.ts` 내용을 **그대로 붙여넣기** → **Deploy**
    (CLI 면 `supabase functions deploy ai-vision`)
 
-### 8.2 켜기
+### 8.2 키·모델·켜기 — **전부 앱에서**
 
-`app/config.js` 에서 `AI_PROXY: true` 로 바꾸고 커밋 (임시 확인은 주소 뒤 `?ai=1`).
+관리자(roles 에 `admin`)로 로그인 → **⚙ 설정** → 맨 위 **"🔐 서버 공용 AI (관리자)"**:
 
-### 8.3 키·모델 넣기 — **앱에서**
+1. **API 키**: Google AI Studio 키 입력 → **서버에 저장**
+   - 저장하면 `ai_config` 표(관리자만 읽기)에 들어가고, 화면엔 이후 끝 4자리만 표시
+2. **모델**: 드롭다운(`gemini-3.6-flash` 등) 또는 "직접 입력" → 저장
+   - **모델은 자주 바꿔도 됩니다. 키 칸은 비워 두면 기존 키가 유지됩니다.**
+   - 저장하면 아래에 "✓ 모델 … 저장됨 · 시각" 이 뜨고, 반영 안 되면 경고가 뜹니다
+3. **🟢 서버 공용 AI 켜기** 토글 — 켜야 실제로 모든 사용자에게 적용됩니다
 
-관리자(roles 에 `admin`)로 로그인 → **⚙ 설정** → 맨 위 **"🔐 서버 공용 AI 키 (관리자)"**:
-
-- **제공사**: Gemini
-- **모델**: `gemini-3.6-flash` 등 (드롭다운 또는 직접 입력 — **모델 변경은 여기서 즉시 반영, 재배포 불필요**)
-- **API 키**: Google AI Studio 키 → **서버에 저장**
-
-저장하면 `ai_config` 표(관리자만 읽기)에 들어가고, Edge Function 이 서버에서 읽어 씁니다.
-화면에는 이후 끝 4자리(`****abcd`)만 표시됩니다.
-
-> 키를 대시보드 Secret 으로 넣고 싶으면 (앱 저장 대신) ai-vision → Secrets 에
-> `GEMINI_API_KEY` / `GEMINI_MODEL` 을 넣어도 됩니다. **DB 설정이 우선**, 없으면 Secret 을 씁니다.
+> `config.js` 의 `AI_PROXY` 는 이제 건드릴 필요 없습니다(옛 스키마용 폴백).
+> 키를 대시보드 Secret 으로 넣어도 됩니다 — **DB 설정이 우선**, 없으면 Secret(`GEMINI_API_KEY`).
 
 ### 확인
 

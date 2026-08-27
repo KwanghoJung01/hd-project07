@@ -45,15 +45,13 @@
     AUTH_EMAIL_DOMAIN: 'vendor.example.com',
 
     /**
-     * 사진·영상 AI 분석에 **서버 공용 키**를 쓸지.
+     * 서버 공용 AI 분석의 **폴백 스위치**.
      *
-     * true 로 하면 모든 사용자(접수자·전문가)가 개별 API 키 입력 없이 바로 AI 분석을 씁니다.
-     * 키는 브라우저에 나가지 않고 Edge Function(ai-vision)의 Secret 에만 있습니다.
+     * 실제 켜기/끄기는 이제 앱에서 관리자가 ⚙ 설정의 "서버 공용 AI" 토글로 합니다
+     * (DB ai_config.enabled). 이 값은 그 RPC 를 못 읽는 옛 스키마 환경에서만 쓰입니다.
      *
-     * 켜기 전에:
-     *   1) supabase/functions/ai-vision 를 배포 (SUPABASE-설정.md 참고)
-     *   2) 그 함수 Secrets 에 GEMINI_API_KEY 입력
-     * 함수가 없으면 자동으로 개별 키(⚙ 설정) 또는 오프라인 규칙 엔진으로 내려갑니다.
+     * 준비물: supabase/functions/ai-vision 배포 + 앱에서 관리자가 키 입력 (SUPABASE-설정.md 8장).
+     * 함수·키가 없으면 자동으로 개별 키(⚙ 설정) 또는 오프라인 규칙 엔진으로 내려갑니다.
      */
     AI_PROXY: true
   };

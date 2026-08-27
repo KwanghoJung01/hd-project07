@@ -129,6 +129,8 @@
     aiConfig: null,         // 관리자가 설정 열면 서버 공용 AI 설정(현재값) 채워짐
     aiCfgLoading: false,
     aiCfgErr: null,
+    aiCfgSaved: null,       // 방금 저장했다는 확인 문구
+    aiProxy: null,          // { enabled, key_set } — 모든 사용자가 boot 시 읽음
     editReporter: false,    // C-01 접수자 이름·이메일 편집 펼침
     busy: null,             // 비동기 작업 안내문(미디어 분석 중 등)
     notice: null            // 일회성 안내문(STT 미지원/실패 등)
@@ -140,6 +142,10 @@
       .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   }
   function now() { return new Date().toISOString(); }
+  function tsShort() {
+    var d = new Date(), p = function (n) { return (n < 10 ? "0" : "") + n; };
+    return p(d.getHours()) + ":" + p(d.getMinutes()) + ":" + p(d.getSeconds());
+  }
   function fmt(ts) {
     if (!ts) return "";
     var d = new Date(ts);
@@ -528,10 +534,14 @@
     });
   }
 
-  /** 서버 공용 키(Edge Function)로 분석할 수 있는 상태인지 — 모든 사용자 공통, 키 입력 불필요 */
+  /**
+   * 서버 공용 키(Edge Function)로 분석할 수 있는 상태인지 — 모든 사용자 공통, 키 입력 불필요.
+   * 관리자가 앱에서 켠 상태(state.aiProxy.enabled)가 우선. RPC 를 못 읽었으면 config.js 로 폴백.
+   */
   function serverVisionOn() {
-    return !!(SERVER && (window.APP_CONFIG || {}).AI_PROXY &&
-      window.FISupabase && window.FISupabase.aiVision);
+    if (!(SERVER && window.FISupabase && window.FISupabase.aiVision)) return false;
+    if (state.aiProxy) return !!state.aiProxy.enabled;         // DB 값(켜짐 + 키 있음)
+    return !!(window.APP_CONFIG || {}).AI_PROXY;               // 폴백
   }
   /** 지금 어떤 경로로든 사진 분석이 가능한지 */
   function visionActive() {
@@ -816,14 +826,14 @@
   function adminAiConfigHTML() {
     if (!isAdmin()) return "";
     var c = state.aiConfig;
-    var proxy = (window.APP_CONFIG || {}).AI_PROXY;
+    // 현재 모델(저장된 값). 3종 중 하나면 드롭다운, 아니면 직접입력 칸.
+    var curModel = (c && c.model) || "";
+    var inList = E.aivision.GEMINI_MODELS.some(function (m) { return m.id === curModel; });
     var modelOpts = E.aivision.GEMINI_MODELS.map(function (m) {
-      var sel = c && c.model === m.id ? " selected" : "";
-      return '<option value="' + esc(m.id) + '"' + sel + '>' + esc(m.label) + '</option>';
+      return '<option value="' + esc(m.id) + '"' + (curModel === m.id ? " selected" : "") + '>' + esc(m.label) + '</option>';
     }).join("");
-    var freeModel = (c && c.model && !E.aivision.GEMINI_MODELS.some(function (m) { return m.id === c.model; })) ? c.model : "";
+    var freeModel = (curModel && !inList) ? curModel : "";
 
-    // 현재 상태 — 크게, 색으로 구분
     var statusHTML;
     if (state.aiCfgErr) {
       statusHTML = '<div class="warnbox" style="margin:6px 0 10px"><div class="t">설정을 읽지 못했습니다</div><p>' +
@@ -832,33 +842,40 @@
       statusHTML = '<p class="muted" style="margin:6px 0 10px">현재 설정 확인 중…</p>';
     } else if (c.key_set) {
       statusHTML = '<p style="margin:6px 0 10px"><span class="badge b-ANSWERED">✅ 키 설정됨</span> ' +
-        '<code>' + esc(c.key_hint || "****") + '</code> · 모델 <code>' + esc(c.model || "gemini-3.6-flash(기본)") + '</code>' +
-        (c.updated_at ? ' <span class="muted">· 마지막 변경 ' + fmt(c.updated_at) + '</span>' : '') + '</p>';
+        '<code>' + esc(c.key_hint || "****") + '</code> · 현재 모델 <code>' + esc(curModel || "gemini-3.6-flash (기본)") + '</code>' +
+        (c.updated_at ? '<br><span class="muted">마지막 저장 ' + fmt(c.updated_at) + '</span>' : '') + '</p>';
     } else {
       statusHTML = '<p style="margin:6px 0 10px"><span class="badge b-REOPENED">⚠ 키 미설정</span> — 아래에 키를 넣고 저장하세요.</p>';
     }
 
+    var on = !!(c && c.enabled);
+    var toggleHTML = '<div style="display:flex;align-items:center;gap:10px;margin:8px 0 12px">' +
+      '<button type="button" class="' + (on ? "okbtn" : "ghost") + '" data-action="toggle-ai-enabled" ' +
+        'style="min-height:40px;padding:0 14px;margin:0">' +
+        (on ? "🟢 서버 공용 AI  켜짐 — 끄기" : "⚪ 서버 공용 AI  꺼짐 — 켜기") + '</button>' +
+      '<span class="muted">' + (on ? "모든 사용자가 사진 첨부 시 AI 분석" : "지금은 규칙 엔진만 동작") + '</span>' +
+      '</div>';
+
     return '<div class="notice" style="border:1px solid var(--line);padding:12px;border-radius:8px;margin-bottom:12px">' +
-      '<b>🔐 서버 공용 AI 키 (관리자)</b>' +
+      '<b>🔐 서버 공용 AI (관리자)</b>' +
       statusHTML +
-      '<p class="muted" style="margin:4px 0 10px">여기에 넣으면 <b>모든 사용자</b>가 개별 키 없이 사진·영상 AI 분석을 씁니다. ' +
-        '키는 서버에만 저장되고 다른 사용자 화면으로 내려가지 않습니다.' +
-        (proxy ? "" : ' <b style="color:var(--danger)">※ 지금 config.js 의 AI_PROXY 가 꺼져 있어 실제 분석에는 아직 적용되지 않습니다.</b>') + '</p>' +
-      '<label class="fld" for="ai-cfg-provider">제공사</label>' +
-      '<select id="ai-cfg-provider"><option value="gemini"' + (!c || c.provider === "gemini" ? " selected" : "") + '>Gemini (무료 티어)</option></select>' +
+      toggleHTML +
+      '<p class="muted" style="margin:4px 0 10px">키는 서버에만 저장되고 다른 사용자 화면으로 내려가지 않습니다. ' +
+        '<b>모델은 자주 바꿔도 됩니다 — 키는 비워 두면 그대로 유지됩니다.</b></p>' +
       '<label class="fld" for="ai-cfg-model">모델</label>' +
-      '<select id="ai-cfg-model">' + modelOpts + '</select>' +
-      '<label class="fld" for="ai-cfg-model-free">모델 직접 입력 (선택 — 비우면 위 선택값. 예: gemini-3.7-flash)</label>' +
-      '<input type="text" id="ai-cfg-model-free" placeholder="기본값 사용" value="' + esc(freeModel) + '">' +
-      '<label class="fld" for="ai-cfg-key">API 키' +
-        (c && c.key_set ? ' <span class="muted">— 바꿀 때만 입력</span>' : '') + '</label>' +
+      '<select id="ai-cfg-model">' + modelOpts +
+        '<option value="__free__"' + (freeModel ? " selected" : "") + '>직접 입력 …</option>' +
+      '</select>' +
+      '<label class="fld" for="ai-cfg-model-free">직접 입력 (위에서 "직접 입력" 선택 시. 예: gemini-3.7-flash)</label>' +
+      '<input type="text" id="ai-cfg-model-free" placeholder="비워 두면 위 선택값" value="' + esc(freeModel) + '">' +
+      '<label class="fld" for="ai-cfg-key">API 키 ' +
+        (c && c.key_set ? '<span class="muted">— 바꿀 때만 입력, 모델만 바꾸려면 비워 두세요</span>' : '') + '</label>' +
       '<input type="password" id="ai-cfg-key" autocomplete="new-password" placeholder="' +
-        (c && c.key_set ? "설정됨 (" + esc(c.key_hint || "****") + ") — 변경 시에만 입력" : "Google AI Studio 키") + '">' +
-      '<div class="row-actions" style="margin-top:8px">' +
+        (c && c.key_set ? "설정됨 (" + esc(c.key_hint || "****") + ") — 변경 시에만" : "Google AI Studio 키") + '">' +
+      '<div class="row-actions" style="margin-top:10px">' +
         '<button class="primary" data-action="save-ai-config" style="margin-top:0">서버에 저장</button>' +
-        (c && c.updated_at ? '<span class="muted">마지막 변경 ' + fmt(c.updated_at) + '</span>' : '') +
       '</div>' +
-      '<p class="muted" style="margin-top:6px">먼저 <code>supabase/functions/ai-vision</code> 를 배포해야 합니다 (SUPABASE-설정.md 8장).</p>' +
+      (state.aiCfgSaved ? '<p style="margin-top:6px;color:var(--ok);font-weight:700">✓ 저장됨 — ' + esc(state.aiCfgSaved) + '</p>' : '') +
       '</div>';
   }
 
@@ -885,42 +902,44 @@
         (settings.vision_model === m.id ? " selected" : "") + '>' + esc(m.label) + '</option>';
     }).join("");
 
+    // 관리자는 위쪽 "서버 공용 AI 키" 박스에서만 AI 를 관리한다 — 아래 개별 키 항목은 숨긴다
+    // (모델 입력칸이 두 개라 어느 것을 저장했는지 헷갈렸다).
+    var showBrowserAI = !isAdmin();
+    var browserAI = showBrowserAI ? (
+      '<h3 style="margin-top:16px">개별 AI 분석 (이 브라우저 전용)</h3>' +
+      '<p class="muted">서버 공용 키가 없을 때만 사용됩니다. 키는 이 브라우저 localStorage 에만 저장됩니다.</p>' +
+      '<label class="fld" for="set-vision">AI 분석 제공사</label>' +
+      '<select id="set-vision">' +
+      '<option value="none"' + (settings.vision_provider === "none" ? " selected" : "") + '>사용 안 함 (오프라인 규칙 엔진)</option>' +
+      '<option value="gemini"' + (isGemini ? " selected" : "") + '>Gemini API</option>' +
+      '<option value="claude"' + (settings.vision_provider === "claude" ? " selected" : "") + '>Claude API</option>' +
+      '<option value="openai"' + (settings.vision_provider === "openai" ? " selected" : "") + '>OpenAI API</option>' +
+      '</select>' +
+      (isGemini
+        ? '<label class="fld" for="set-gemini-model">Gemini 모델</label>' +
+          '<select id="set-gemini-model">' + geminiModelOptions + '</select>'
+        : '') +
+      '<label class="fld" for="set-vision-key">' + (isGemini ? "Gemini API 키" : "AI 분석 API 키") + '</label>' +
+      '<input type="text" id="set-vision-key" placeholder="API 키" value="' + esc(settings.vision_key) + '">' +
+      '<label class="fld" for="set-vision-model">모델 직접 입력 (선택 — 예: gemini-3.7-flash)</label>' +
+      '<input type="text" id="set-vision-model" placeholder="기본값 사용" value="' + esc(isGemini ? "" : settings.vision_model) + '">'
+    ) : "";
+
     return '' +
       '<section class="card" id="settings-view">' +
       '<h2>⚙ 설정 <span class="sr">(전문가)</span></h2>' +
       adminAiConfigHTML() +
-      (serverVisionOn()
-        ? '<p class="notice">🔍 <b>서버 공용 AI 사용 중</b> — 모든 사용자가 개별 키 없이 사진·영상 AI 분석을 씁니다. 아래 개별 키 항목은 무시됩니다.</p>'
-        : '') +
-      '<p class="muted">아래 개별 API 키는 <b>이 브라우저에만</b> 저장됩니다(서버 공용 키가 없을 때만 사용). 키가 없으면 완전 오프라인 규칙 엔진으로 동작합니다.</p>' +
 
-      '<label class="fld" for="set-stt">음성 인식(STT) 엔진</label>' +
+      '<h3 style="margin-top:16px">음성 인식(STT)</h3>' +
+      '<label class="fld" for="set-stt">엔진</label>' +
       '<select id="set-stt">' +
-      '<option value="webspeech"' + (settings.stt_engine === "webspeech" ? " selected" : "") + '>Web Speech API — 무료·키 불필요 (PC 크롬/엣지, 네트워크 필요)</option>' +
-      '<option value="whisper"' + (settings.stt_engine === "whisper" ? " selected" : "") + '>Whisper API — 녹음 파일 업로드 (API 키 필요, 모바일 권장)</option>' +
+      '<option value="webspeech"' + (settings.stt_engine === "webspeech" ? " selected" : "") + '>Web Speech API — 무료·키 불필요 (PC 크롬/엣지)</option>' +
+      '<option value="whisper"' + (settings.stt_engine === "whisper" ? " selected" : "") + '>Whisper API — 녹음 파일 업로드 (API 키 필요)</option>' +
       '</select>' +
       '<label class="fld" for="set-whisper-key">Whisper API 키 (선택)</label>' +
       '<input type="text" id="set-whisper-key" placeholder="sk-…" value="' + esc(settings.whisper_key) + '">' +
 
-      '<label class="fld" for="set-vision">AI 분석 제공사 — 선택</label>' +
-      '<select id="set-vision">' +
-      '<option value="none"' + (settings.vision_provider === "none" ? " selected" : "") + '>사용 안 함 (기본 — 오프라인 규칙 엔진)</option>' +
-      '<option value="gemini"' + (isGemini ? " selected" : "") + '>Gemini API — 무료 티어 (브라우저 직접 호출 가능)</option>' +
-      '<option value="claude"' + (settings.vision_provider === "claude" ? " selected" : "") + '>Claude API</option>' +
-      '<option value="openai"' + (settings.vision_provider === "openai" ? " selected" : "") + '>OpenAI API</option>' +
-      '</select>' +
-      '<p class="muted">선택한 제공사에 <b>키를 함께 입력</b>해야 사진·영상 정밀 분석이 켜집니다. 비어 있으면 규칙 엔진으로 접수됩니다.</p>' +
-
-      (isGemini
-        ? '<label class="fld" for="set-gemini-model">Gemini 모델</label>' +
-          '<select id="set-gemini-model">' + geminiModelOptions + '</select>' +
-          '<p class="muted">무료 한도는 <b>키(프로젝트) 단위로 공유</b>됩니다. 다른 프로젝트와 같은 키를 쓰면 일일 한도를 나눠 쓰니, Field-Insight 전용 키를 권장합니다. 한도 초과 시 접수는 규칙 엔진으로 계속되고 AI 분석만 잠시 쉽니다.</p>'
-        : '') +
-
-      '<label class="fld" for="set-vision-key">' + (isGemini ? "Gemini API 키" : "AI 분석 API 키") + '</label>' +
-      '<input type="text" id="set-vision-key" placeholder="API 키" value="' + esc(settings.vision_key) + '">' +
-      '<label class="fld" for="set-vision-model">모델 직접 입력 (선택 — 비우면 위 기본값. 예: gemini-3.7-flash)</label>' +
-      '<input type="text" id="set-vision-model" placeholder="기본값 사용" value="' + esc(isGemini ? "" : settings.vision_model) + '">' +
+      browserAI +
 
       '<div class="row-actions">' +
       '<button class="primary" data-action="save-settings" style="margin-top:0">저장</button>' +
@@ -1691,11 +1710,12 @@
       /* 설정 */
       case "open-settings": {
         state.settingsOpen = true;
+        state.aiCfgSaved = null;
         // 관리자면 서버 공용 AI 설정(현재 값)을 읽어 온다 — 키 원문은 안 옴, 끝 4자리만.
         if (isAdmin() && window.FISupabase && window.FISupabase.getAiConfig) {
           state.aiCfgLoading = true; state.aiCfgErr = null;
           window.FISupabase.getAiConfig().then(function (c) {
-            state.aiConfig = c || { provider: "gemini", model: "", key_set: false };
+            state.aiConfig = c || { provider: "gemini", model: "", key_set: false, enabled: false };
             state.aiCfgLoading = false;
             render();
           }).catch(function (e) {
@@ -1706,19 +1726,41 @@
         }
         break;
       }
-      case "close-settings": state.settingsOpen = false; break;
-      case "save-ai-config": {
-        var av = function (id) { var e = document.getElementById(id); return e ? e.value.trim() : ""; };
-        var prov = av("ai-cfg-provider") || "gemini";
-        var mdl = av("ai-cfg-model-free") || av("ai-cfg-model") || "";
-        var newKey = av("ai-cfg-key");   // 비우면 서버가 기존 키 유지
-        state.busy = "서버 공용 AI 설정 저장 중…"; render();
-        window.FISupabase.setAiConfig(prov, newKey, mdl)
+      case "close-settings": state.settingsOpen = false; state.aiCfgSaved = null; break;
+      case "toggle-ai-enabled": {
+        var want = !(state.aiConfig && state.aiConfig.enabled);
+        state.busy = want ? "서버 공용 AI 켜는 중…" : "끄는 중…"; render();
+        window.FISupabase.setAiEnabled(want)
           .then(function () { return window.FISupabase.getAiConfig(); })
           .then(function (c) {
             state.aiConfig = c;
+            state.aiProxy = { enabled: !!(c && c.enabled && c.key_set), key_set: !!(c && c.key_set) };
             state.busy = null;
-            state.notice = "서버 공용 AI 설정을 저장했습니다. 모든 사용자에게 즉시 적용됩니다.";
+            state.aiCfgSaved = (want ? "켜짐" : "꺼짐") + " · " + tsShort();
+            render();
+          })
+          .catch(function (e) { state.busy = null; state.notice = "변경 실패: " + ((e && e.message) || e); render(); });
+        return;
+      }
+      case "save-ai-config": {
+        var av = function (id) { var e = document.getElementById(id); return e ? String(e.value || "").trim() : ""; };
+        var mSel = av("ai-cfg-model");
+        var mdl = (mSel === "__free__" || !mSel) ? av("ai-cfg-model-free") : mSel;   // 드롭다운 우선, "직접입력"이면 텍스트칸
+        var newKey = av("ai-cfg-key");   // 비우면 서버가 기존 키 유지
+        state.busy = "서버에 저장 중…"; render();
+        window.FISupabase.setAiConfig("gemini", newKey, mdl)
+          .then(function () { return window.FISupabase.getAiConfig(); })
+          .then(function (c) {
+            state.aiConfig = c;
+            state.aiProxy = { enabled: !!(c && c.enabled && c.key_set), key_set: !!(c && c.key_set) };
+            state.busy = null;
+            // 저장이 실제로 반영됐는지 확인해서 알려 준다
+            var savedModel = (c && c.model) || "";
+            state.aiCfgSaved = (mdl && savedModel === mdl)
+              ? "모델 " + savedModel + " 저장됨 · " + tsShort()
+              : (mdl && savedModel !== mdl)
+                ? "⚠ 저장은 됐지만 모델이 '" + savedModel + "' 로 남아 있습니다. 다시 시도하세요."
+                : "저장됨 · " + tsShort();
             render();
           })
           .catch(function (e) {
@@ -2296,6 +2338,15 @@
     });
   }
 
+  /** 서버 공용 AI 가 켜져 있는지 읽어 온다 (모든 사용자). 실패해도 조용히 넘어간다 — config 폴백. */
+  function loadAiProxy() {
+    if (!(window.FISupabase && window.FISupabase.aiProxyStatus)) return;
+    window.FISupabase.aiProxyStatus().then(function (s) {
+      state.aiProxy = s;
+      render();
+    }).catch(function () { /* RPC 없거나 스키마 구버전 — config.js 폴백 */ });
+  }
+
   /** 익명(접수자) 세션으로 서버 자료(내 이슈만)를 불러와 접수자 화면을 연다 */
   function startReporter() {
     return window.FISupabase.loadDb().then(function (loaded) {
@@ -2320,6 +2371,7 @@
       applyRoles();
       paintWho();
       render();
+      loadAiProxy();
     }).catch(function (err) {
       if (isClockError(err)) throw err;   // boot 가 잠깐 뒤 다시 시도한다
       // 서버가 안 되어도 접수 자체는 막지 않는다 — 이 브라우저에 저장하고 계속
@@ -2350,6 +2402,7 @@
       paintWho();
       state.view = "e01";
       render();
+      loadAiProxy();
     }).catch(function (err) {
       if (isClockError(err)) throw err;   // boot 가 잠깐 뒤 다시 시도한다
       var msg = (err && err.message) || String(err);

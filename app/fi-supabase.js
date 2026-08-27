@@ -454,6 +454,19 @@
     return db().rpc('set_ai_config', { p_provider: provider || 'gemini', p_key: key || '', p_model: model || '' })
       .then(function (r) { if (r.error) throw r.error; return true; });
   }
+  /** 관리자 — 서버 공용 AI 켜기/끄기 */
+  function setAiEnabled(on) {
+    return db().rpc('set_ai_enabled', { p_enabled: !!on })
+      .then(function (r) { if (r.error) throw r.error; return true; });
+  }
+  /** 모든 사용자 — 서버 공용 AI 가 켜져 있고 키가 있는지 (키 원문은 안 옴) */
+  function aiProxyStatus() {
+    return db().rpc('ai_proxy_status').then(function (r) {
+      if (r.error) throw r.error;
+      var row = (r.data && r.data[0]) || {};
+      return { enabled: !!row.enabled, key_set: !!row.key_set };
+    });
+  }
 
   /**
    * 다음 이슈 번호 — 서버 시퀀스에서 원자적으로 뽑는다.
@@ -474,7 +487,8 @@
     signIn: signIn, signInAnonymously: signInAnonymously, isAnon: isAnon,
     signOut: signOut, session: session, loadMe: loadMe, whoami: whoami,
     loadDb: loadDb, saveDb: saveDb, nextNo: nextNo, aiVision: aiVision,
-    getAiConfig: getAiConfig, setAiConfig: setAiConfig, pathTo: pathTo,
+    getAiConfig: getAiConfig, setAiConfig: setAiConfig,
+    setAiEnabled: setAiEnabled, aiProxyStatus: aiProxyStatus, pathTo: pathTo,
     uploadMedia: uploadMedia, signedUrl: signedUrl,
     attachmentPaths: attachmentPaths, mediaPath: mediaPath,
     conclusionOf: conclusionOf, replyOf: replyOf, resolutionOf: resolutionOf,

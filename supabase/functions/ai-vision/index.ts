@@ -65,20 +65,24 @@ function parseFindings(text: string) {
   }
 }
 
-/** DB(ai_config) 에서 키·모델을 읽는다. 없으면 null → 호출부가 Secret 으로 폴백. */
-async function configFromDB(): Promise<{ key: string; model: string | null } | null> {
+/** DB(ai_config) 에서 키·모델·켜짐여부를 읽는다. 없으면 null → 호출부가 Secret 으로 폴백. */
+async function configFromDB(): Promise<{ key: string; model: string | null; enabled: boolean } | null> {
   const url = Deno.env.get("SUPABASE_URL");
   const svc = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
   if (!url || !svc) return null;
   try {
-    const r = await fetch(`${url}/rest/v1/ai_config?id=eq.1&select=api_key,model`, {
+    const r = await fetch(`${url}/rest/v1/ai_config?id=eq.1&select=api_key,model,enabled`, {
       headers: { apikey: svc, authorization: `Bearer ${svc}` },
     });
     if (!r.ok) return null;
     const rows = await r.json();
     const row = Array.isArray(rows) ? rows[0] : null;
     if (row?.api_key && String(row.api_key).trim()) {
-      return { key: String(row.api_key).trim(), model: row.model ? String(row.model).trim() : null };
+      return {
+        key: String(row.api_key).trim(),
+        model: row.model ? String(row.model).trim() : null,
+        enabled: row.enabled !== false,
+      };
     }
   } catch {
     /* 폴백 */
@@ -91,6 +95,9 @@ Deno.serve(async (req: Request) => {
   if (req.method !== "POST") return json({ error: { message: "POST 만 허용", status: 405 } }, 405);
 
   const fromDB = await configFromDB();
+  if (fromDB && !fromDB.enabled) {
+    return json({ error: { message: "서버 공용 AI 가 꺼져 있습니다. 관리자가 ⚙ 설정에서 켜야 합니다.", status: 503 } }, 200);
+  }
   const key = fromDB?.key || Deno.env.get("GEMINI_API_KEY");
   if (!key) {
     return json({ error: { message: "AI 키가 없습니다. 관리자가 ⚙ 설정에서 서버 공용 키를 넣어 주세요.", status: 500 } }, 200);

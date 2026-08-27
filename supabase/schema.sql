@@ -212,10 +212,12 @@ create table if not exists public.ai_config (
   provider   text not null default 'gemini',
   api_key    text,
   model      text,
+  enabled    boolean not null default false,   -- 앱의 켜기/끄기 토글
   updated_by uuid,
   updated_at timestamptz not null default now(),
   constraint ai_config_singleton check (id = 1)
 );
+alter table public.ai_config add column if not exists enabled boolean not null default false;
 alter table public.ai_config enable row level security;
 drop policy if exists ai_config_admin on public.ai_config;
 -- 관리자만 읽고 쓴다. (Edge Function 은 RLS 를 우회하는 service_role 로 접근)
@@ -223,15 +225,31 @@ create policy ai_config_admin on public.ai_config for all to authenticated
   using (public.is_admin()) with check (public.is_admin());
 
 -- 앱(관리자 화면)용 — **키 원문은 절대 돌려주지 않는다.** 설정 여부와 끝 4자리만.
+-- ⚠ RETURNS 열이 바뀌었으므로 먼저 떨어뜨린다 (create or replace 는 반환형 변경을 거부).
+drop function if exists public.get_ai_config();
 create or replace function public.get_ai_config()
-returns table (provider text, model text, key_set boolean, key_hint text, updated_at timestamptz)
+returns table (provider text, model text, key_set boolean, key_hint text, enabled boolean, updated_at timestamptz)
 language sql security definer set search_path = public as $fn$
   select c.provider, c.model,
          (c.api_key is not null and length(btrim(c.api_key)) > 0) as key_set,
          case when c.api_key is not null and length(c.api_key) >= 4
               then '****' || right(c.api_key, 4) else null end as key_hint,
+         c.enabled,
          c.updated_at
   from public.ai_config c where c.id = 1;
+$fn$;
+
+-- **모든 사용자**(익명 접수자 포함)가 부르는, 켜짐 여부만 알려 주는 함수. 키는 안 준다.
+create or replace function public.ai_proxy_status()
+returns table (enabled boolean, key_set boolean)
+language sql security definer set search_path = public as $fn$
+  select coalesce(c.enabled, false)
+           and c.api_key is not null and length(btrim(c.api_key)) > 0 as enabled,
+         (c.api_key is not null and length(btrim(c.api_key)) > 0) as key_set
+  from public.ai_config c where c.id = 1
+  union all
+  select false, false where not exists (select 1 from public.ai_config where id = 1)
+  limit 1;
 $fn$;
 
 -- 관리자만. key 를 비워서(null) 보내면 기존 키를 유지한다(모델만 바꿀 때).
@@ -250,6 +268,20 @@ begin
     model      = excluded.model,
     updated_by = excluded.updated_by,
     updated_at = now();
+end;
+$fn$;
+
+-- 관리자만. 켜기/끄기 토글.
+create or replace function public.set_ai_enabled(p_enabled boolean)
+returns void language plpgsql security definer set search_path = public as $fn$
+begin
+  if not public.is_admin() then
+    raise exception '관리자만 AI 설정을 바꿀 수 있습니다.';
+  end if;
+  insert into public.ai_config (id, enabled, updated_by, updated_at)
+  values (1, coalesce(p_enabled, false), auth.uid(), now())
+  on conflict (id) do update set
+    enabled = coalesce(p_enabled, false), updated_by = auth.uid(), updated_at = now();
 end;
 $fn$;
 
@@ -533,7 +565,9 @@ revoke all on function public.is_anon_user()                from public, anon;
 revoke all on function public.is_staff()                    from public, anon;
 revoke all on function public.next_issue_no()               from public, anon;
 revoke all on function public.get_ai_config()               from public, anon;
+revoke all on function public.ai_proxy_status()             from public, anon;
 revoke all on function public.set_ai_config(text, text, text) from public, anon;
+revoke all on function public.set_ai_enabled(boolean)       from public, anon;
 revoke all on function public.can_transition(text, text)    from public, anon;
 revoke all on function public.guard_transition()            from public, anon;
 revoke all on function public.guard_knowledge()             from public, anon;
@@ -544,7 +578,9 @@ grant execute on function public.is_anon_user()             to authenticated;
 grant execute on function public.is_staff()                 to authenticated;
 grant execute on function public.next_issue_no()            to authenticated;
 grant execute on function public.get_ai_config()            to authenticated;
+grant execute on function public.ai_proxy_status()          to authenticated;
 grant execute on function public.set_ai_config(text, text, text) to authenticated;
+grant execute on function public.set_ai_enabled(boolean)    to authenticated;
 grant execute on function public.can_transition(text, text) to authenticated;
 grant execute on function public.guard_transition()         to authenticated;
 grant execute on function public.guard_knowledge()          to authenticated;
