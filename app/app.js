@@ -50,9 +50,16 @@
     save: function (db) {
       // 브라우저에는 항상 남긴다 — 서버가 잠깐 안 되어도 입력한 것이 사라지지 않게.
       try { localStorage.setItem(this.KEY, JSON.stringify(db)); } catch (e) { /* 저장 불가 환경 */ }
-      // 서버 모드면 바뀐 이슈만 올린다. 실패하면 조용히 넘기지 않고 띠에 적는다.
+      // 서버 모드면 바뀐 이슈만 올린다. 실패하면 조용히 넘기지 않고 화면에 이유를 남긴다.
       if (SERVER && window.FISupabase) {
-        window.FISupabase.saveDb(db).catch(function () { /* 알림은 어댑터가 한다 */ });
+        window.FISupabase.saveDb(db).then(function (n) {
+          if (n && state.notice && /서버에 저장되지 않았/.test(state.notice)) { state.notice = null; render(); }
+        }).catch(function (e) {
+          state.notice = "⚠ 접수 내용이 아직 서버에 저장되지 않았습니다.\n원인: " +
+            ((e && (e.message || e.hint)) || e) +
+            "\n(이 화면에는 임시로 보이지만 전문가에게 전달되지 않았습니다. 새로고침 후 다시 접수하거나 원인을 확인해 주세요.)";
+          try { render(); } catch (err) {}
+        });
       }
     },
     reset: function () {
