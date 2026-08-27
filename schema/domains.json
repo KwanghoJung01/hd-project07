@@ -1,0 +1,93 @@
+{
+  "version": "1.0.0",
+  "description": "Field-Insight Domain 분류 정의. MVP-1에서는 정비(maintenance)만 active이며, 나머지 도메인은 구조(코드/라벨/키워드 슬롯)만 정의한다. Domain 추가 시 이 파일에 항목을 추가하고 schema_ref로 Requirement Schema 파일을 연결한다.",
+  "safety_keywords": [
+    "화재", "불이 붙", "불이 났", "불꽃", "연기", "타는 냄새", "타는냄새",
+    "브레이크가 안", "브레이크 안", "제동이 안", "제동 안", "멈추지 않",
+    "전복", "넘어질 것", "쓰러질 것", "감전", "폭발", "연료가 새", "연료가 뿜", "기름이 뿜"
+  ],
+  "safety_notice": "안전 위험 키워드 감지 시(FR-05) 정보수집을 중단하고 긴급 경고 및 에스컬레이션 안내로 즉시 분기한다.",
+  "domains": [
+    {
+      "code": "maintenance",
+      "label": "정비",
+      "active": true,
+      "mvp": 1,
+      "schema_ref": "schema/maintenance.requirements.json",
+      "keywords": [
+        "덜컹", "소음", "이상음", "진동", "떨림", "충격", "흔들",
+        "누유", "오일이 새", "기름이 새", "경고등", "알람",
+        "고장", "수리", "정비", "점검", "시동이 안", "시동 불량",
+        "엔진", "유압", "작동이 안", "움직이지 않", "멈춥", "꺼져", "꺼집",
+        "느려", "속도가 안", "힘이 없", "출력이 떨어"
+      ],
+      "intents": [
+        { "code": "abnormal_symptom", "label": "이상 현상 진단" },
+        { "code": "warning_lamp", "label": "경고등·알람 문의" }
+      ]
+    },
+    {
+      "code": "operation",
+      "label": "운전",
+      "active": false,
+      "mvp": 5,
+      "schema_ref": null,
+      "keywords": ["조작 방법", "조작이 어려", "레버", "운전 방법", "작업 요령", "평탄 작업", "조종"],
+      "intents": []
+    },
+    {
+      "code": "education",
+      "label": "교육",
+      "active": false,
+      "mvp": 5,
+      "schema_ref": null,
+      "keywords": ["교육", "신입", "배우고", "교육생", "훈련", "가르치", "실습"],
+      "intents": []
+    },
+    {
+      "code": "quality",
+      "label": "품질",
+      "active": false,
+      "mvp": 5,
+      "schema_ref": null,
+      "keywords": ["불량", "도장", "조립 상태", "납품", "품질", "마감"],
+      "intents": []
+    },
+    {
+      "code": "safety",
+      "label": "안전",
+      "active": false,
+      "mvp": 5,
+      "schema_ref": null,
+      "keywords": ["안전 수칙", "보호구", "위험해 보", "안전 점검"],
+      "intents": []
+    },
+    {
+      "code": "tech_inquiry",
+      "label": "기술문의",
+      "active": false,
+      "mvp": 5,
+      "schema_ref": null,
+      "keywords": ["사양", "스펙", "규격", "호환", "제원", "몇 톤", "용량", "토크"],
+      "intents": []
+    },
+    {
+      "code": "usability",
+      "label": "사용성",
+      "active": false,
+      "mvp": 5,
+      "schema_ref": null,
+      "keywords": ["화면 사용", "버튼이 어디", "메뉴", "설정 방법", "모니터 사용"],
+      "intents": []
+    },
+    {
+      "code": "etc",
+      "label": "기타",
+      "active": false,
+      "mvp": 5,
+      "schema_ref": null,
+      "keywords": [],
+      "intents": []
+    }
+  ]
+}

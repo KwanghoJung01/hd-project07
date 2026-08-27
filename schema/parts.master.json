@@ -1,0 +1,42 @@
+{
+  "version": "1.0.0",
+  "description": "굴착기 부품/계통 코드 마스터 샘플. 전문가 결론(확정원인)의 계통/부품은 자유 텍스트 금지 — 반드시 이 마스터에서 검색·선택한다. 코드가 없으면 집계와 학습이 불가능하다(원문 10.3).",
+  "systems": [
+    { "system_code": "SW-HYD", "label": "선회 유압 계통", "group": "선회" },
+    { "system_code": "SW-MEC", "label": "선회 기계 계통", "group": "선회" },
+    { "system_code": "HYD-MN", "label": "메인 유압 계통", "group": "유압" },
+    { "system_code": "HYD-AT", "label": "작업장치 유압 계통", "group": "유압" },
+    { "system_code": "TR-DRV", "label": "주행 구동 계통", "group": "주행" },
+    { "system_code": "TR-UND", "label": "하부주행체 계통", "group": "주행" },
+    { "system_code": "EN-CR", "label": "엔진 본체 계통", "group": "엔진" },
+    { "system_code": "EN-AUX", "label": "엔진 보조 계통", "group": "엔진" },
+    { "system_code": "EL-PW", "label": "전장 전원 계통", "group": "전장" },
+    { "system_code": "EL-CT", "label": "전장 제어 계통", "group": "전장" }
+  ],
+  "parts": [
+    { "part_code": "SW-HYD-0412", "label": "선회 모터 릴리프 밸브", "system_code": "SW-HYD" },
+    { "part_code": "SW-HYD-0201", "label": "선회 모터", "system_code": "SW-HYD" },
+    { "part_code": "SW-HYD-0305", "label": "선회 브레이크 밸브", "system_code": "SW-HYD" },
+    { "part_code": "SW-MEC-0105", "label": "선회 감속기", "system_code": "SW-MEC" },
+    { "part_code": "SW-MEC-0310", "label": "스윙 서클 베어링", "system_code": "SW-MEC" },
+    { "part_code": "HYD-MN-0101", "label": "메인 유압 펌프", "system_code": "HYD-MN" },
+    { "part_code": "HYD-MN-0205", "label": "메인 컨트롤 밸브", "system_code": "HYD-MN" },
+    { "part_code": "HYD-MN-0401", "label": "유압 오일 필터", "system_code": "HYD-MN" },
+    { "part_code": "HYD-MN-0502", "label": "파일럿 펌프", "system_code": "HYD-MN" },
+    { "part_code": "HYD-AT-0301", "label": "붐 실린더", "system_code": "HYD-AT" },
+    { "part_code": "HYD-AT-0302", "label": "암 실린더", "system_code": "HYD-AT" },
+    { "part_code": "HYD-AT-0303", "label": "버킷 실린더", "system_code": "HYD-AT" },
+    { "part_code": "TR-DRV-0101", "label": "주행 모터", "system_code": "TR-DRV" },
+    { "part_code": "TR-DRV-0202", "label": "주행 감속기", "system_code": "TR-DRV" },
+    { "part_code": "TR-UND-0301", "label": "트랙 링크", "system_code": "TR-UND" },
+    { "part_code": "TR-UND-0305", "label": "아이들러", "system_code": "TR-UND" },
+    { "part_code": "EN-CR-0101", "label": "연료 분사 펌프", "system_code": "EN-CR" },
+    { "part_code": "EN-CR-0401", "label": "터보차저", "system_code": "EN-CR" },
+    { "part_code": "EN-AUX-0201", "label": "라디에이터(냉각 계통)", "system_code": "EN-AUX" },
+    { "part_code": "EN-AUX-0301", "label": "에어클리너", "system_code": "EN-AUX" },
+    { "part_code": "EL-PW-0101", "label": "배터리", "system_code": "EL-PW" },
+    { "part_code": "EL-PW-0402", "label": "경고등 회로", "system_code": "EL-PW" },
+    { "part_code": "EL-CT-0205", "label": "압력 센서", "system_code": "EL-CT" },
+    { "part_code": "EL-CT-0301", "label": "메인 컨트롤러(ECU)", "system_code": "EL-CT" }
+  ]
+}

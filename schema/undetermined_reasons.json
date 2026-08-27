@@ -1,0 +1,10 @@
+{
+  "version": "1.0.0",
+  "description": "'원인 미확정' 종결 시 필수로 선택해야 하는 사유 코드(원문 10.3). 강제 확정은 데이터를 오염시키므로 미확정 종결을 허용하되 사유 코드는 필수다.",
+  "reasons": [
+    { "code": "UND-INFO", "label": "정보부족" },
+    { "code": "UND-REPRO", "label": "재현불가" },
+    { "code": "UND-NOREPLY", "label": "고객 미회신" },
+    { "code": "UND-TRANSFER", "label": "타 부서 이관" }
+  ]
+}

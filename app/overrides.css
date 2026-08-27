@@ -1,0 +1,104 @@
+/* ────────────────────────────────────────────────────────────────────────────
+   공통 테마(hd-theme.css)에 지고 있던 것만 되돌린다.
+   ⚠ 반드시 hd-theme.css **뒤에** 읽혀야 한다. 앞에 두면 아무 효과가 없다.
+   ──────────────────────────────────────────────────────────────────────────── */
+
+/* ── 상단 바: 로고 왼쪽 · 조작부 오른쪽 ─────────────────────────────────
+   원래 `header.topbar h1 { margin-right: auto }` 로 밀어내고 있었는데,
+   공통 테마의
+       .hd.hd-app :where(h1, h2, …) { margin: 0 0 .5em }
+   가 `margin` **단축 속성**으로 오른쪽 마진까지 0 으로 되돌렸다.
+   특정도는 (0,2,0) 대 (0,1,2) — 클래스 수가 많은 테마가 이긴다.
+   그래서 조작부가 제목 바로 옆에 붙어 왼쪽에 몰려 있었다.
+   여기서는 auto 마진에 기대지 않고 `justify-content: space-between` 으로
+   양 끝에 세운다. 마진이 다시 덮여도 배치가 무너지지 않는다. */
+.hd.hd-app .topbar-inner {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 16px; width: 100%;
+  max-width: var(--container-wide, 1280px); margin: 0 auto;
+}
+.hd.hd-app .topbar-brand {
+  margin: 0;                 /* 테마의 아래 여백 .5em 을 지운다 — 한 줄 바에서는 줄을 어긋나게 만든다 */
+  font-size: 17px; line-height: 1.2; letter-spacing: .3px;
+  flex: 0 1 auto; min-width: 0;
+}
+.hd.hd-app .topbar-brand small { font-weight: 400; opacity: .72; font-size: 12px; margin-left: 6px; }
+.hd.hd-app .topbar-actions {
+  display: flex; align-items: center; justify-content: flex-end;
+  gap: 8px; flex-wrap: wrap; flex: 0 0 auto;
+}
+
+/* 좁은 화면에서는 두 줄로 내리되, 조작부는 계속 오른쪽에 붙인다 */
+@media (max-width: 760px) {
+  .hd.hd-app .topbar-inner { flex-wrap: wrap; gap: 10px; }
+  .hd.hd-app .topbar-brand { flex: 1 0 100%; }
+  .hd.hd-app .topbar-actions { flex: 1 0 100%; }
+}
+
+/* ── 로그인 상태 표시 ──────────────────────────────────────────────── */
+.hd.hd-app .auth-slot { display: inline-flex; align-items: center; gap: 8px; }
+.hd.hd-app .auth-who {
+  font-size: 12.5px; color: rgba(255,255,255,.86);
+  display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
+}
+.hd.hd-app .auth-who .role {
+  font-size: 11px; font-weight: 700; letter-spacing: .02em;
+  background: rgba(255,255,255,.16); color: #fff;
+  border-radius: 999px; padding: 2px 8px;
+}
+
+/* ── 로그인 입력칸 ──────────────────────────────────────────────────
+   style.css 의 입력 규칙이 `input[type=text]` 만 골라서
+   비밀번호 칸만 좁게 남았다. 같은 모양으로 맞춘다. */
+.hd.hd-app input[type=password] {
+  width: 100%; min-height: 48px; padding: 12px; font-size: 16px;
+  border: 1px solid var(--line); border-radius: 10px; background: #fff; color: var(--ink);
+}
+
+/* ── 상단 바 고정 — 스크롤은 본문만 ─────────────────────────────────────
+   원래 `header.topbar` 는 `position: sticky; top: 0` 이었는데 **안 붙었다.**
+   공통 테마의 `html, body { overflow-x: hidden }` 때문이다 —
+   한 축이 visible 이 아니면 다른 축이 auto 로 계산되어 스크롤 컨테이너가 되고,
+   sticky 는 뷰포트가 아니라 그 컨테이너를 기준으로 붙는다.
+   가로 넘침을 막는 규칙이라 걷어낼 수 없으므로 **fixed** 로 못 박는다.
+
+   현장에서 사진을 첨부하고 아래로 내려가며 입력하는 화면이라,
+   모드 전환·설정 버튼이 늘 보이는 편이 낫다. */
+.hd.hd-app #fi-conn {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 45;
+}
+body.hd.hd-app > header.topbar {
+  position: fixed; top: var(--fi-banner-h, 0px); left: 0; right: 0; z-index: 40;
+}
+/* 고정된 만큼 본문을 내린다 — 안 내리면 첫 줄이 가린다 */
+body.hd.hd-app > main {
+  padding-top: calc(var(--fi-chrome-h, 66px) + 14px);
+}
+
+/* ── 첨부 영역 — 끌어다 놓기 ────────────────────────────────────────────
+   원래는 버튼을 눌러 고르는 것만 됐다. 현장에서 찍은 사진을 창에 끌어다
+   놓는 것이 더 빠르고, 여러 장을 한 번에 넣을 수 있다. */
+.hd.hd-app .drop-media {
+  display: block; border: 2px dashed #93a7bd; border-radius: 12px;
+  background: #f7fafd; padding: 18px 16px; text-align: center; cursor: pointer;
+  transition: border-color .15s, background .15s; margin: 10px 0 4px;
+}
+.hd.hd-app .drop-media:hover, .hd.hd-app .drop-media.over {
+  border-color: var(--accent); background: #eef7fc;
+}
+.hd.hd-app .drop-media b { display: block; font-size: 15px; margin-bottom: 4px; }
+.hd.hd-app .drop-media span { color: var(--hd-ink-2, #5b6b7b); font-size: 13px; }
+.hd.hd-app .drop-media input[type=file] { display: none; }
+
+/* 지금 정밀 분석이 켜져 있는지 첨부 자리에서 바로 보여 준다 —
+   설정 화면까지 가서 확인하게 하면 아무도 확인하지 않는다 */
+.hd.hd-app .vision-state {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  flex-wrap: wrap; font-size: 13px; border-radius: 9px; padding: 9px 12px; margin: 6px 0 2px;
+}
+.hd.hd-app .vision-state.on  { background: #e9f6f0; color: #08422a; }
+.hd.hd-app .vision-state.off { background: #f2f5f8; color: #43536b; }
+.hd.hd-app .vision-state button {
+  border: 1px solid currentColor; background: transparent; color: inherit;
+  border-radius: 7px; padding: 4px 10px; font-size: 12.5px; font-weight: 650; cursor: pointer;
+}

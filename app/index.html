@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Field-Insight MVP-1 — 현장 이슈 접수·AI 구조화·전문가 판단·회신 루프</title>
+  <link rel="stylesheet" href="style.css">
+<!-- 공통 디자인 시스템. 반드시 기존 CSS 뒤에 온다 —
+     특정도가 같으면 나중에 온 쪽이 이기므로 순서가 곧 우선순위다. -->
+<link rel="stylesheet" href="hd-theme.css">
+<!-- 공통 테마에 지는 것만 되돌린다. 반드시 hd-theme.css 뒤. -->
+<link rel="stylesheet" href="overrides.css">
+<!-- === HD:META:BEGIN (자동 생성 — scripts 로 다시 굽습니다) === -->
+<link rel="icon" href="https://aebonlee.github.io/hd-project07/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="https://aebonlee.github.io/hd-project07/favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="https://aebonlee.github.io/hd-project07/apple-touch-icon.png">
+<link rel="canonical" href="https://aebonlee.github.io/hd-project07/app/">
+<meta name="robots" content="index,follow">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="HD 생성형 AI 업무자동화 전문가과정">
+<meta property="og:url" content="https://aebonlee.github.io/hd-project07/app/">
+<meta property="og:title" content="Field-Insight — 현장 이슈 정형화 — HD 생성형 AI 업무자동화 전문가과정">
+<meta property="og:description" content="현장이 전문용어 없이 설명하면 AI 가 질문 3개 이내로 정형화하고, 전문가가 4필드 결론을 내려 고객 언어로 회신합니다.">
+<meta property="og:image" content="https://aebonlee.github.io/hd-project07/app/og-index.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:locale" content="ko_KR">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Field-Insight — 현장 이슈 정형화 — HD 생성형 AI 업무자동화 전문가과정">
+<meta name="twitter:description" content="현장이 전문용어 없이 설명하면 AI 가 질문 3개 이내로 정형화하고, 전문가가 4필드 결론을 내려 고객 언어로 회신합니다.">
+<meta name="twitter:image" content="https://aebonlee.github.io/hd-project07/app/og-index.png">
+<!-- === HD:META:END === -->
+</head>
+<body class="hd hd-app">
+  <header class="topbar">
+    <!-- 로고는 왼쪽, 조작부는 오른쪽. 가운데 폭 제한은 .topbar-inner 가 맡는다.
+         (공통 테마는 `> .topbar-inner` 가 있는 헤더에는 자기 여백을 넣지 않는다) -->
+    <div class="topbar-inner">
+      <h1 class="topbar-brand">Field-Insight <small>MVP-1 · 정비 도메인</small></h1>
+      <div class="topbar-actions">
+        <div class="mode-toggle" role="group" aria-label="화면 모드 전환(user.roles[])">
+          <button id="mode-reporter" type="button">접수자</button>
+          <button id="mode-expert" type="button">전문가</button>
+        </div>
+        <button id="btn-load-seed" class="util" type="button" title="원문 15장 ISSUE #1024 시나리오를 IN_REVIEW 상태로 로드">시드 데모</button>
+        <button id="btn-settings" class="util" type="button" title="STT 엔진·미디어 정밀 분석 설정">⚙ 설정</button>
+        <button id="btn-reset" class="util" type="button" title="저장소 + 미디어 저장소 초기화">초기화</button>
+        <span id="auth-slot" class="auth-slot"></span>
+      </div>
+    </div>
+  </header>
+
+  <main id="root" aria-live="polite"></main>
+
+  <!-- 스키마(SSOT: schema/*.json → tools/build-schema-bundle.js 로 번들) -->
+  <script src="schema.bundle.js"></script>
+  <!-- Mock AI Rule Engine (Phase 2에서 LLM 어댑터 구현체만 교체) -->
+  <script src="../engine/confidence.js"></script>
+  <script src="../engine/intent.js"></script>
+  <script src="../engine/gap.js"></script>
+  <script src="../engine/question.js"></script>
+  <script src="../engine/statemachine.js"></script>
+  <script src="../engine/mockai.js"></script>
+  <!-- 2차 고도화: 미디어·STT·비전 어댑터 + IndexedDB 미디어 저장소 -->
+  <script src="../engine/media.js"></script>
+  <script src="../engine/stt.js"></script>
+  <script src="../engine/aivision.js"></script>
+  <script src="mediastore.js"></script>
+  <!-- 시드: 원문 15장 End-to-End 시나리오 (ISSUE #1024) -->
+  <script src="../seed/issue1024.js"></script>
+  <!-- 서버 연결(선택) — 값이 비어 있으면 데모 모드로 그대로 돕니다.
+       config.js 에 본인 Supabase 값을 넣는 방법은 저장소의 SUPABASE-설정.md 참고. -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <script src="config.js"></script>
+  <script src="fi-supabase.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
