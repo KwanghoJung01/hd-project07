@@ -42,13 +42,28 @@
      * 계정을 만들 때도 같은 규칙으로 만들어야 합니다.
      *   예) 업체코드 V-A  →  V-A@vendor.example.com
      */
-    AUTH_EMAIL_DOMAIN: 'vendor.example.com'
+    AUTH_EMAIL_DOMAIN: 'vendor.example.com',
+
+    /**
+     * 사진·영상 AI 분석에 **서버 공용 키**를 쓸지.
+     *
+     * true 로 하면 모든 사용자(접수자·전문가)가 개별 API 키 입력 없이 바로 AI 분석을 씁니다.
+     * 키는 브라우저에 나가지 않고 Edge Function(ai-vision)의 Secret 에만 있습니다.
+     *
+     * 켜기 전에:
+     *   1) supabase/functions/ai-vision 를 배포 (SUPABASE-설정.md 참고)
+     *   2) 그 함수 Secrets 에 GEMINI_API_KEY 입력
+     * 함수가 없으면 자동으로 개별 키(⚙ 설정) 또는 오프라인 규칙 엔진으로 내려갑니다.
+     */
+    AI_PROXY: false
   };
 
-  // 주소로 임시 전환 — 스키마를 올린 직후 커밋 없이 확인할 때
+  // 주소로 임시 전환 — 커밋 없이 잠깐 확인할 때
   try {
     var q = String(root.location && root.location.search || '');
     if (/[?&]supabase=1\b/.test(q)) root.APP_CONFIG.USE_SUPABASE = true;
     if (/[?&]supabase=0\b/.test(q)) root.APP_CONFIG.USE_SUPABASE = false;
+    if (/[?&]ai=1\b/.test(q)) root.APP_CONFIG.AI_PROXY = true;
+    if (/[?&]ai=0\b/.test(q)) root.APP_CONFIG.AI_PROXY = false;
   } catch (e) { /* 파일로 직접 열었을 때 */ }
 })(typeof self !== 'undefined' ? self : this);

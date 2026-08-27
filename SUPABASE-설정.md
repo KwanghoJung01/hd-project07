@@ -216,7 +216,42 @@ on conflict (user_id) do update set roles = excluded.roles;
 
 ---
 
-## 8. 커밋해도 되는 것, 안 되는 것
+## 8. (선택) 사진·영상 AI 분석 — 서버 공용 키
+
+개별 사용자가 각자 API 키를 넣지 않고, **관리자가 한 번만 넣으면 모두가 바로** 쓰게 하는 방법입니다.
+키는 브라우저에 나가지 않고 Edge Function 안에만 있습니다. (무료 티어로 충분)
+
+### 8.1 함수 배포
+
+1. 대시보드 → **Edge Functions** → **Deploy a new function**
+2. 이름 `ai-vision`
+3. `supabase/functions/ai-vision/index.ts` 내용을 **그대로 붙여넣기** → **Deploy**
+   (CLI 를 쓴다면 `supabase functions deploy ai-vision`)
+
+### 8.2 키 넣기 (Secret)
+
+대시보드 → Edge Functions → **ai-vision → Secrets** (또는 Project Settings → Edge Functions → Secrets):
+
+| 이름 | 값 |
+|---|---|
+| `GEMINI_API_KEY` | Google AI Studio 키 (**Field-Insight 전용 키 권장** — 다른 프로젝트와 나눠 쓰면 일일 한도 공유) |
+| `GEMINI_MODEL` (선택) | `gemini-3.6-flash` (비우면 이 값이 기본) |
+
+### 8.3 켜기
+
+`app/config.js` 에서 `AI_PROXY: true` 로 바꾸고 커밋
+(커밋 없이 잠깐 확인만 하려면 주소 뒤에 `?ai=1`).
+
+### 확인
+
+접수 화면에서 **사진을 첨부**하면 상단에 "🔍 첨부한 사진·영상을 AI가 함께 분석합니다" 가 뜨고,
+`다음(내용 분석)` 을 누르면 서버가 분석합니다. 함수·키가 없으면 자동으로 오프라인 규칙 엔진으로 내려갑니다(접수는 항상 됨). 무료 한도를 넘으면 "오늘 한도 소진" 안내 후 규칙 엔진으로 계속됩니다.
+
+> `GEMINI_API_KEY` 는 커밋 금지 — Secret 에만. `config.js` 의 `AI_PROXY` 는 켜기/끄기 스위치일 뿐이라 커밋해도 됩니다.
+
+---
+
+## 9. 커밋해도 되는 것, 안 되는 것
 
 | | |
 |---|---|

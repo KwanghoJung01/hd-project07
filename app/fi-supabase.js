@@ -420,6 +420,26 @@
   }
 
   /**
+   * 서버 공용 키로 사진·영상 AI 분석 (Edge Function ai-vision).
+   * 개별 API 키 없이 로그인한 사용자면 누구나 호출 가능.
+   * @param {Object} payload {images: [dataURI...], context?, model?}
+   * @returns Promise<{summary, observed[], hazards[], provider, model}>  (실패는 구조화 예외)
+   */
+  function aiVision(payload) {
+    return db().functions.invoke('ai-vision', { body: payload }).then(function (r) {
+      if (r.error) throw r.error;
+      var d = r.data || {};
+      if (d.error) {
+        var e = new Error(d.error.message || 'AI 분석 실패');
+        e.status = d.error.status; e.quota = d.error.quota;
+        e.daily = d.error.daily; e.retryAfterSec = d.error.retryAfterSec;
+        throw e;
+      }
+      return d;
+    });
+  }
+
+  /**
    * 다음 이슈 번호 — 서버 시퀀스에서 원자적으로 뽑는다.
    * 기기·접수자마다 로컬 카운터를 쓰면 번호가 겹쳐 code 유니크 제약에 걸린다.
    */
@@ -437,7 +457,7 @@
     available: available, client: db,
     signIn: signIn, signInAnonymously: signInAnonymously, isAnon: isAnon,
     signOut: signOut, session: session, loadMe: loadMe, whoami: whoami,
-    loadDb: loadDb, saveDb: saveDb, nextNo: nextNo, pathTo: pathTo,
+    loadDb: loadDb, saveDb: saveDb, nextNo: nextNo, aiVision: aiVision, pathTo: pathTo,
     uploadMedia: uploadMedia, signedUrl: signedUrl,
     attachmentPaths: attachmentPaths, mediaPath: mediaPath,
     conclusionOf: conclusionOf, replyOf: replyOf, resolutionOf: resolutionOf,

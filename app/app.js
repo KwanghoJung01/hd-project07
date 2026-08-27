@@ -525,11 +525,22 @@
     });
   }
 
+  /** 서버 공용 키(Edge Function)로 분석할 수 있는 상태인지 — 모든 사용자 공통, 키 입력 불필요 */
+  function serverVisionOn() {
+    return !!(SERVER && (window.APP_CONFIG || {}).AI_PROXY &&
+      window.FISupabase && window.FISupabase.aiVision);
+  }
+  /** 지금 어떤 경로로든 사진 분석이 가능한지 */
+  function visionActive() {
+    return serverVisionOn() || !!visionAdapter();
+  }
+
   /** 첨부 이미지 + 영상 프레임 → 비전 분석. 실패해도 기본 경로(규칙 엔진)는 유지 */
   function analyzeDraftMedia(contextText) {
-    var adapterV = visionAdapter();
+    var useServer = serverVisionOn();
+    var adapterV = useServer ? null : visionAdapter();
     var visual = state.draftMedia.filter(function (m) { return m.kind === "image" || m.kind === "video"; });
-    if (!adapterV || !visual.length) return Promise.resolve(null);
+    if ((!useServer && !adapterV) || !visual.length) return Promise.resolve(null);
     var jobs = visual.map(function (m) {
       return window.FI_MEDIA.get(m.media_id).then(function (rec) {
         if (!rec || !rec.blob) return [];
@@ -542,7 +553,9 @@
       var images = [];
       lists.forEach(function (l) { l.forEach(function (u) { if (images.length < 3) images.push(u); }); });
       if (!images.length) return null;
-      return adapterV.analyzeMedia({ images: images, context: contextText });
+      return useServer
+        ? window.FISupabase.aiVision({ images: images, context: contextText })
+        : adapterV.analyzeMedia({ images: images, context: contextText });
     }).catch(function (err) {
       state.notice = aiErrorNotice(err);
       return null;
@@ -565,8 +578,8 @@
       var sec = err.retryAfterSec ? " (약 " + err.retryAfterSec + "초)" : "";
       return "지금 AI 분석 요청이 몰려 잠시 뒤 다시 시도할 수 있습니다" + sec + "." + tail;
     }
-    var code = err && err.status ? " (오류 " + err.status + ")" : "";
-    return "AI 상세 분석에 실패했습니다" + code + "." + tail;
+    var why = (err && err.message) ? " — " + err.message : (err && err.status ? " (오류 " + err.status + ")" : "");
+    return "AI 상세 분석에 실패했습니다" + why + "." + tail;
   }
 
   /* ────────────────────────── 접수 흐름 로직 ────────────────────────── */
@@ -818,6 +831,9 @@
     return '' +
       '<section class="card" id="settings-view">' +
       '<h2>⚙ 설정 <span class="sr">(전문가)</span></h2>' +
+      (serverVisionOn()
+        ? '<p class="notice">🔍 <b>서버 공용 AI 사용 중</b> — 모든 사용자가 개별 키 없이 사진·영상 AI 분석을 씁니다. 키는 서버(Edge Function)에만 있습니다. 아래 개별 키 항목은 무시됩니다.</p>'
+        : '') +
       '<p class="muted">API 키는 이 브라우저의 localStorage 에만 저장되며 접수 데이터와 함께 전송되지 않습니다. 키가 없으면 완전 오프라인 규칙 엔진으로 동작합니다.</p>' +
 
       '<label class="fld" for="set-stt">음성 인식(STT) 엔진</label>' +
@@ -883,13 +899,15 @@
    * 꺼져 있어도 접수는 그대로 된다 — 규칙 엔진이 오프라인으로 돈다.
    */
   function visionStateHTML() {
-    var on = settings.vision_provider !== "none" && settings.vision_key;
-    var who = { openai: "OpenAI", claude: "Claude", gemini: "Gemini", solar: "Solar" }[settings.vision_provider]
-              || settings.vision_provider;
-    // 접수자에게는 제공사·API 키 같은 것을 노출하지 않는다. 켜져 있으면 사실만 짧게 알린다.
-    if (state.mode !== "expert") {
+    var server = serverVisionOn();
+    var ownKey = settings.vision_provider !== "none" && settings.vision_key;
+    var on = server || ownKey;
+    var who = server ? "서버 공용 AI"
+      : ({ openai: "OpenAI", claude: "Claude", gemini: "Gemini", solar: "Solar" }[settings.vision_provider] || settings.vision_provider);
+    // 서버 공용 키면 모든 사용자에게 "켜짐"만 알린다 (키·제공사 노출 없음).
+    if (state.mode !== "expert" || server) {
       return on
-        ? '<div class="vision-state on"><span>🔍 첨부한 사진·영상을 AI가 함께 살펴봅니다.</span></div>'
+        ? '<div class="vision-state on"><span>🔍 첨부한 사진·영상을 AI가 함께 분석합니다.</span></div>'
         : "";
     }
     return '<div class="vision-state ' + (on ? "on" : "off") + '">' +
@@ -1592,8 +1610,8 @@
         state.c01Text = text;
         var eq = EQUIPMENTS[parseInt(document.getElementById("select-equipment").value, 10)];
         var hasVisual = state.draftMedia.some(function (m) { return m.kind === "image" || m.kind === "video"; });
-        if (visionAdapter() && hasVisual) {
-          state.busy = "첨부 미디어 정밀 분석 중… (실패해도 접수는 계속됩니다)";
+        if (visionActive() && hasVisual) {
+          state.busy = "첨부 사진·영상 AI 분석 중… (실패해도 접수는 계속됩니다)";
           render();
           analyzeDraftMedia(text).then(function (findings) {
             state.busy = null;
