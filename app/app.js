@@ -232,16 +232,51 @@
     tryPlay(0);
   }
 
+  /** 스마트폰/태블릿 여부 — 아이패드(iPadOS)는 데스크톱 UA 로 위장하므로 터치포인트로 보강 */
+  function isMobileDevice() {
+    var ua = navigator.userAgent || "";
+    if (/Android|iPhone|iPod|Windows Phone/i.test(ua)) return true;
+    if (/iPad/i.test(ua)) return true;
+    return /Macintosh/i.test(ua) && navigator.maxTouchPoints > 1; // iPadOS 13+
+  }
+  /** 아이폰·아이패드(WebKit) — 마이크 동시 점유·제스처 제약으로 실시간 STT 가 불안정 */
+  function isIOSDevice() {
+    var ua = navigator.userAgent || "";
+    return /iPhone|iPad|iPod/i.test(ua) || (/Macintosh/i.test(ua) && navigator.maxTouchPoints > 1);
+  }
+  /** HTTPS(또는 localhost) 인지 — 아니면 브라우저가 마이크·음성 인식을 원천 차단한다 */
+  function secureContextOK() {
+    return typeof window.isSecureContext === "boolean" ? window.isSecureContext : true;
+  }
+  /** 이 기기에서 실시간(라이브) 전사를 시도할 수 있는지 */
+  function liveSTTPossible() {
+    return settings.stt_engine === "webspeech" && secureContextOK() && !isIOSDevice() && E.stt.supported(window);
+  }
+
   function sttUnsupportedNotice() {
+    if (!secureContextOK()) {
+      return "이 페이지가 보안 연결(HTTPS)이 아니어서 브라우저가 마이크·음성 인식을 막았습니다. " +
+        "주소가 https:// 로 시작하는 정식 주소로 접속해 주세요. 그동안에는 텍스트로 입력해 주세요.";
+    }
+    if (isIOSDevice()) {
+      return "아이폰·아이패드에서는 실시간 받아쓰기가 불안정해 녹음만 첨부합니다. " +
+        "녹음은 원본 증거로 저장되며, 아래 칸에 현상을 직접 적어 주시면 됩니다. " +
+        "(⚙ 설정에 Whisper API 키가 있으면 녹음을 자동 전사합니다.)";
+    }
     return "이 브라우저는 실시간 음성 인식(Web Speech)을 지원하지 않습니다. " +
-      "크롬/엣지를 사용하거나, ⚙ 설정에서 Whisper API 키를 등록하면 녹음 파일로 전사할 수 있습니다. " +
+      "PC 크롬/엣지를 사용하거나, ⚙ 설정에서 Whisper API 키를 등록하면 녹음 파일로 전사할 수 있습니다. " +
       "녹음 자체는 원본 증거로 첨부됩니다.";
   }
 
   /** 녹음 시작: MediaRecorder + (가능하면) Web Speech 실시간 전사 */
   function startRecording() {
     if (state.rec) return;
-    if (!navigator.mediaDevices || !window.MediaRecorder) {
+    if (!secureContextOK()) {
+      state.notice = sttUnsupportedNotice();
+      render();
+      return;
+    }
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) {
       state.notice = "이 브라우저는 음성 녹음을 지원하지 않습니다. 텍스트로 입력해 주세요.";
       render();
       return;
@@ -254,8 +289,10 @@
       mr.ondataavailable = function (e) { if (e.data && e.data.size) rec.chunks.push(e.data); };
       mr.onstop = function () { finishRecording(rec); };
 
-      // 실시간 STT (Web Speech) — 세그먼트 타임스탬프는 녹음 시작 기준 ms
-      if (settings.stt_engine === "webspeech" && E.stt.supported(window)) {
+      // 실시간 STT (Web Speech) — 세그먼트 타임스탬프는 녹음 시작 기준 ms.
+      // 모바일(특히 iOS)에서는 MediaRecorder 와 Web Speech 가 마이크를 동시에 잡으면
+      // 한쪽이 실패한다 → 모바일은 라이브 전사를 걸지 않고 "녹음 후 전사"로만 처리.
+      if (liveSTTPossible()) {
         var engine = E.stt.createWebSpeechSTT({});
         engine.onsegment = function (seg) { appendTranscriptText(seg.text); };
         engine.oninterim = function (t) {
@@ -267,7 +304,10 @@
         rec.stt = engine;
         try { engine.start(); } catch (e) { rec.stt = null; }
       } else if (settings.stt_engine === "webspeech") {
-        state.notice = sttUnsupportedNotice();
+        // 안내는 한 번만, 접수를 막지 않는다. Whisper 키가 있으면 종료 후 자동 전사된다.
+        if (!(settings.stt_engine === "whisper" && settings.whisper_key)) {
+          state.notice = sttUnsupportedNotice();
+        }
       }
       mr.start();
       rec.timerId = setInterval(function () {
@@ -314,8 +354,13 @@
         size: blob.size, duration_ms: durationMs, transcript_segments: segments
       };
       state.draftMedia.push(att);
-      // Whisper 경로: 녹음 파일 업로드 전사 (사용자 키가 있을 때만)
-      if (!segments.length && settings.stt_engine === "whisper" && settings.whisper_key) {
+      // Whisper 경로: 녹음 파일 업로드 전사.
+      //   · stt_engine 이 whisper 이거나
+      //   · webspeech 를 골랐지만 이 기기에서 라이브 전사가 불가능한 경우(모바일 등)
+      //   → 키가 있으면 녹음 파일로라도 전사해 근거 세그먼트를 만든다.
+      var whisperFallback = settings.whisper_key &&
+        (settings.stt_engine === "whisper" || !liveSTTPossible());
+      if (!segments.length && whisperFallback) {
         state.busy = "음성 전사 중…(Whisper)";
         render();
         E.stt.createWhisperSTT({ apiKey: settings.whisper_key })
@@ -328,6 +373,9 @@
           .then(function () { state.busy = null; render(); });
       } else if (!segments.length && settings.stt_engine === "whisper") {
         state.notice = "Whisper API 키가 없습니다. ⚙ 설정에서 키를 입력하면 자동 전사됩니다.";
+      } else if (!segments.length && !liveSTTPossible()) {
+        state.notice = "이 기기에서는 실시간 받아쓰기가 되지 않아 녹음만 첨부했습니다. " +
+          "아래 칸에 현상을 직접 적어 주세요. (녹음은 전문가가 그대로 들을 수 있습니다.)";
       }
       render();
     }).catch(function (err) {
@@ -468,9 +516,29 @@
       if (!images.length) return null;
       return adapterV.analyzeMedia({ images: images, context: contextText });
     }).catch(function (err) {
-      state.notice = "미디어 분석 실패(" + err.message + ") — 규칙 엔진 분석은 정상 동작합니다.";
+      state.notice = aiErrorNotice(err);
       return null;
     });
+  }
+
+  /**
+   * AI 분석 오류를 접수자가 이해할 수 있는 말로 바꾼다. 무엇이 되든 접수는 규칙 엔진으로 계속된다.
+   *   · 429 + retryAfter 있음 → 분당 한도(잠깐 몰림)
+   *   · 429 + retryAfter 없음 → 오늘 무료 한도 소진
+   *   · 그 외 → 일반 실패
+   */
+  function aiErrorNotice(err) {
+    var tail = " 접수는 그대로 진행됩니다 — 규칙 엔진으로 분석했습니다.";
+    if (err && err.quota) {
+      if (err.daily) {
+        return "오늘 사용할 수 있는 AI 상세 분석 횟수를 모두 썼습니다. " +
+          "AI 분석은 내일(한국시간 오후 4~5시 이후) 다시 가능합니다." + tail;
+      }
+      var sec = err.retryAfterSec ? " (약 " + err.retryAfterSec + "초)" : "";
+      return "지금 AI 분석 요청이 몰려 잠시 뒤 다시 시도할 수 있습니다" + sec + "." + tail;
+    }
+    var code = err && err.status ? " (오류 " + err.status + ")" : "";
+    return "AI 상세 분석에 실패했습니다" + code + "." + tail;
   }
 
   /* ────────────────────────── 접수 흐름 로직 ────────────────────────── */
@@ -638,6 +706,10 @@
   function render() {
     document.getElementById("mode-reporter").className = state.mode === "reporter" ? "active" : "";
     document.getElementById("mode-expert").className = state.mode === "expert" ? "active" : "";
+    // AI 제공사·API 키 설정은 전문가만. 접수자에게는 ⚙ 설정 버튼을 감춘다.
+    var setBtn = document.getElementById("btn-settings");
+    if (setBtn) setBtn.hidden = state.mode !== "expert";
+    if (state.mode !== "expert" && state.settingsOpen) state.settingsOpen = false;
     var html = "";
     if (state.mode === "reporter") {
       if (state.view === "c01") html = viewC01();
@@ -677,29 +749,62 @@
       '</div>';
   }
 
-  /** ⚙ 설정 — STT 엔진 / 비전 제공사 / API 키 (키는 이 브라우저 localStorage 에만 저장) */
+  /**
+   * ⚙ 설정 — 역할에 따라 내용이 다르다.
+   *   · 접수자: AI 제공사·키 같은 것은 보여 주지 않는다(불필요·혼란). 안내만.
+   *   · 전문가: STT 엔진 / AI 분석 제공사(Gemini·Claude·OpenAI) / 키 / 모델.
+   * 키는 이 브라우저 localStorage 에만 저장되고 접수 데이터와 함께 전송되지 않는다.
+   */
   function viewSettings() {
+    if (state.mode !== "expert") {
+      return '' +
+        '<section class="card" id="settings-view">' +
+        '<h2>⚙ 설정</h2>' +
+        '<p class="muted">접수는 별도 설정 없이 바로 됩니다. 이 기기는 완전 오프라인 규칙 엔진으로 동작하며, ' +
+        'AI 상세 분석 설정(제공사·API 키)은 전문가 화면에서만 관리합니다.</p>' +
+        '<div class="row-actions"><button class="ghost" data-action="close-settings">닫기</button></div>' +
+        '</section>';
+    }
+
+    var isGemini = settings.vision_provider === "gemini";
+    var geminiModelOptions = E.aivision.GEMINI_MODELS.map(function (m) {
+      return '<option value="' + esc(m.id) + '"' +
+        (settings.vision_model === m.id ? " selected" : "") + '>' + esc(m.label) + '</option>';
+    }).join("");
+
     return '' +
       '<section class="card" id="settings-view">' +
-      '<h2>⚙ 설정</h2>' +
+      '<h2>⚙ 설정 <span class="sr">(전문가)</span></h2>' +
       '<p class="muted">API 키는 이 브라우저의 localStorage 에만 저장되며 접수 데이터와 함께 전송되지 않습니다. 키가 없으면 완전 오프라인 규칙 엔진으로 동작합니다.</p>' +
+
       '<label class="fld" for="set-stt">음성 인식(STT) 엔진</label>' +
       '<select id="set-stt">' +
-      '<option value="webspeech"' + (settings.stt_engine === "webspeech" ? " selected" : "") + '>Web Speech API — 무료·키 불필요 (크롬/엣지, 네트워크 필요)</option>' +
-      '<option value="whisper"' + (settings.stt_engine === "whisper" ? " selected" : "") + '>Whisper API — 녹음 파일 업로드 (API 키 필요)</option>' +
+      '<option value="webspeech"' + (settings.stt_engine === "webspeech" ? " selected" : "") + '>Web Speech API — 무료·키 불필요 (PC 크롬/엣지, 네트워크 필요)</option>' +
+      '<option value="whisper"' + (settings.stt_engine === "whisper" ? " selected" : "") + '>Whisper API — 녹음 파일 업로드 (API 키 필요, 모바일 권장)</option>' +
       '</select>' +
       '<label class="fld" for="set-whisper-key">Whisper API 키 (선택)</label>' +
       '<input type="text" id="set-whisper-key" placeholder="sk-…" value="' + esc(settings.whisper_key) + '">' +
-      '<label class="fld" for="set-vision">미디어 정밀 분석(비전) 제공사 — 선택</label>' +
+
+      '<label class="fld" for="set-vision">AI 분석 제공사 — 선택</label>' +
       '<select id="set-vision">' +
       '<option value="none"' + (settings.vision_provider === "none" ? " selected" : "") + '>사용 안 함 (기본 — 오프라인 규칙 엔진)</option>' +
+      '<option value="gemini"' + (isGemini ? " selected" : "") + '>Gemini API — 무료 티어 (브라우저 직접 호출 가능)</option>' +
       '<option value="claude"' + (settings.vision_provider === "claude" ? " selected" : "") + '>Claude API</option>' +
       '<option value="openai"' + (settings.vision_provider === "openai" ? " selected" : "") + '>OpenAI API</option>' +
       '</select>' +
-      '<label class="fld" for="set-vision-key">비전 API 키</label>' +
+      '<p class="muted">선택한 제공사에 <b>키를 함께 입력</b>해야 사진·영상 정밀 분석이 켜집니다. 비어 있으면 규칙 엔진으로 접수됩니다.</p>' +
+
+      (isGemini
+        ? '<label class="fld" for="set-gemini-model">Gemini 모델</label>' +
+          '<select id="set-gemini-model">' + geminiModelOptions + '</select>' +
+          '<p class="muted">무료 한도는 <b>키(프로젝트) 단위로 공유</b>됩니다. 다른 프로젝트와 같은 키를 쓰면 일일 한도를 나눠 쓰니, Field-Insight 전용 키를 권장합니다. 한도 초과 시 접수는 규칙 엔진으로 계속되고 AI 분석만 잠시 쉽니다.</p>'
+        : '') +
+
+      '<label class="fld" for="set-vision-key">' + (isGemini ? "Gemini API 키" : "AI 분석 API 키") + '</label>' +
       '<input type="text" id="set-vision-key" placeholder="API 키" value="' + esc(settings.vision_key) + '">' +
-      '<label class="fld" for="set-vision-model">비전 모델 (비우면 제공사 기본값)</label>' +
-      '<input type="text" id="set-vision-model" placeholder="기본값 사용" value="' + esc(settings.vision_model) + '">' +
+      '<label class="fld" for="set-vision-model">모델 직접 입력 (선택 — 비우면 위 기본값. 예: gemini-3.7-flash)</label>' +
+      '<input type="text" id="set-vision-model" placeholder="기본값 사용" value="' + esc(isGemini ? "" : settings.vision_model) + '">' +
+
       '<div class="row-actions">' +
       '<button class="primary" data-action="save-settings" style="margin-top:0">저장</button>' +
       '<button class="ghost" data-action="close-settings">닫기</button>' +
@@ -736,23 +841,39 @@
    */
   function visionStateHTML() {
     var on = settings.vision_provider !== "none" && settings.vision_key;
-    var who = { openai: "OpenAI", claude: "Claude", solar: "Solar" }[settings.vision_provider]
+    var who = { openai: "OpenAI", claude: "Claude", gemini: "Gemini", solar: "Solar" }[settings.vision_provider]
               || settings.vision_provider;
+    // 접수자에게는 제공사·API 키 같은 것을 노출하지 않는다. 켜져 있으면 사실만 짧게 알린다.
+    if (state.mode !== "expert") {
+      return on
+        ? '<div class="vision-state on"><span>🔍 첨부한 사진·영상을 AI가 함께 살펴봅니다.</span></div>'
+        : "";
+    }
     return '<div class="vision-state ' + (on ? "on" : "off") + '">' +
       '<span>' + (on
         ? '🔍 <b>정밀 분석 켜짐</b> — 첨부한 사진·영상을 ' + esc(who) + ' 가 함께 살펴봅니다.'
         : '📴 <b>오프라인 규칙 엔진</b>으로 접수합니다 — 사진은 증거로 첨부만 됩니다.' +
-          ' API 키를 넣으면 사진 속 상태까지 읽습니다.') + '</span>' +
+          ' ⚙ 설정에서 제공사·API 키를 넣으면 사진 속 상태까지 읽습니다.') + '</span>' +
       '<button type="button" data-action="open-settings">' +
         (on ? "설정 보기" : "API 키 넣기") + '</button></div>';
   }
 
   /* ── C-01 입력 + 장비 선택 + 음성/미디어 첨부 (2차 고도화: 핸즈프리 우선) ── */
   function viewC01() {
-    var sttReady = E.stt.supported(window);
-    var sttHint = settings.stt_engine === "whisper"
-      ? (settings.whisper_key ? "녹음 종료 후 Whisper 로 자동 전사됩니다." : "Whisper 키 미등록 — ⚙ 설정에서 등록하면 자동 전사됩니다.")
-      : (sttReady ? "말하면 실시간으로 텍스트가 채워집니다." : "이 브라우저는 실시간 전사 미지원 — 녹음은 증거로 첨부됩니다.");
+    var sttHint;
+    if (!secureContextOK()) {
+      sttHint = "보안 연결(HTTPS)이 아니어서 음성 기능이 제한됩니다 — 텍스트로 입력해 주세요.";
+    } else if (settings.stt_engine === "whisper") {
+      sttHint = settings.whisper_key ? "녹음 종료 후 Whisper 로 자동 전사됩니다." : "Whisper 키 미등록 — ⚙ 설정에서 등록하면 자동 전사됩니다.";
+    } else if (liveSTTPossible()) {
+      sttHint = "말하면 실시간으로 텍스트가 채워집니다. (PC 크롬/엣지)";
+    } else if (isIOSDevice()) {
+      sttHint = "아이폰·아이패드는 실시간 받아쓰기가 불안정 — 녹음만 첨부되고, 아래 칸에 직접 적어 주세요.";
+    } else if (isMobileDevice()) {
+      sttHint = "이 기기는 실시간 받아쓰기가 불안정 — 녹음을 첨부하고 아래 칸에 직접 적어 주세요.";
+    } else {
+      sttHint = "이 브라우저는 실시간 전사 미지원 — 녹음은 증거로 첨부됩니다.";
+    }
     return '' +
       '<section class="card" id="view-c01">' +
       '<h2>무슨 일이 있었나요? <span class="sr">(C-01)</span></h2>' +
@@ -1331,11 +1452,15 @@
       case "open-settings": state.settingsOpen = true; break;
       case "close-settings": state.settingsOpen = false; break;
       case "save-settings": {
-        settings.stt_engine = document.getElementById("set-stt").value;
-        settings.whisper_key = document.getElementById("set-whisper-key").value.trim();
-        settings.vision_provider = document.getElementById("set-vision").value;
-        settings.vision_key = document.getElementById("set-vision-key").value.trim();
-        settings.vision_model = document.getElementById("set-vision-model").value.trim();
+        var val = function (id) { var e = document.getElementById(id); return e ? e.value.trim() : ""; };
+        settings.stt_engine = val("set-stt") || settings.stt_engine;
+        settings.whisper_key = val("set-whisper-key");
+        settings.vision_provider = val("set-vision") || "none";
+        settings.vision_key = val("set-vision-key");
+        // 모델: "모델 직접 입력" 이 최우선. 비어 있고 Gemini 면 드롭다운 값을 쓴다.
+        var override = val("set-vision-model");
+        settings.vision_model = override ||
+          (settings.vision_provider === "gemini" ? val("set-gemini-model") : "");
         Settings.save(settings);
         state.settingsOpen = false;
         state.notice = "설정이 저장되었습니다. (키는 이 브라우저에만 보관)";
@@ -1613,6 +1738,14 @@
   root.addEventListener("change", function (ev) {
     if (ev.target.id === "chk-undetermined") {
       syncOpinionForm();
+      render();
+    }
+    // AI 분석 제공사를 바꾸면 아래 항목(Gemini 모델 선택 등)이 달라지므로 즉시 다시 그린다.
+    // 입력하던 키 값은 유지한다. 실제 저장은 [저장] 버튼에서만.
+    if (ev.target.id === "set-vision" && state.settingsOpen) {
+      var kEl = document.getElementById("set-vision-key");
+      if (kEl) settings.vision_key = kEl.value.trim();
+      settings.vision_provider = ev.target.value;
       render();
     }
     if (ev.target.id === "input-image" || ev.target.id === "input-video"

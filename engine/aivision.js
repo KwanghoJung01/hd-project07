@@ -22,8 +22,20 @@
 
   var DEFAULT_MODELS = {
     claude: "claude-opus-5",
-    openai: "gpt-4o"
+    openai: "gpt-4o",
+    gemini: "gemini-3.6-flash"
   };
+
+  /**
+   * Gemini 무료 티어에서 고를 수 있는 모델 (설정 화면 드롭다운용).
+   * 값 = generativelanguage API 에 그대로 보내는 모델 ID.
+   * 새 모델(gemini-3.7-flash 등)은 설정의 "모델 직접 입력" 으로 코드 수정 없이 대응.
+   */
+  var GEMINI_MODELS = [
+    { id: "gemini-2.5-flash-lite", label: "Gemini 2.5 Flash-Lite (무료 한도 넉넉·가벼움)" },
+    { id: "gemini-2.5-flash", label: "Gemini 2.5 Flash" },
+    { id: "gemini-3.6-flash", label: "Gemini 3.6 Flash (최신·무료)" }
+  ];
 
   var PROMPT =
     "당신은 건설장비(굴착기) 정비 접수를 돕는 분석가입니다. 첨부된 현장 사진을 보고 " +
@@ -55,8 +67,35 @@
   }
 
   /**
+   * HTTP 오류를 그대로 문자열로 던지지 않고, 앱이 사용자에게 친절히 안내할 수 있도록
+   * 구조를 붙여 던진다. 특히 429(RESOURCE_EXHAUSTED)는 "일일 소진 / 분당 초과"를 구분한다.
+   */
+  function httpError(status, body) {
+    var msg = "AI 분석 요청 실패 (HTTP " + status + ")";
+    var err = new Error(msg);
+    err.status = status;
+    if (status === 429) {
+      err.quota = true;
+      // RetryInfo.retryDelay 가 있으면 분당 한도(잠시 후 재시도 가능), 없으면 일일 소진으로 본다
+      var retry = null;
+      try {
+        var details = (body && body.error && body.error.details) || [];
+        for (var i = 0; i < details.length; i++) {
+          var d = details[i] || {};
+          if (/RetryInfo/.test(d["@type"] || "") && d.retryDelay) {
+            retry = Math.ceil(parseFloat(String(d.retryDelay).replace(/[^0-9.]/g, "")) || 0);
+          }
+        }
+      } catch (e) { /* 형식이 달라도 무시 */ }
+      err.retryAfterSec = retry;
+      err.daily = retry == null;
+    }
+    return err;
+  }
+
+  /**
    * 어댑터 생성. provider/api_key 미설정이면 null (기본 경로 = 오프라인 규칙 엔진).
-   * @param {Object} settings {provider:"claude"|"openai", api_key, model}
+   * @param {Object} settings {provider:"gemini"|"claude"|"openai", api_key, model}
    * @param {Function} [fetchImpl]
    */
   function createVisionAdapter(settings, fetchImpl) {
@@ -92,6 +131,20 @@
         });
         content.push({ type: "text", text: userText });
         body = { model: model, max_tokens: 1024, messages: [{ role: "user", content: content }] };
+      } else if (provider === "gemini") {
+        // generativelanguage API 는 브라우저 직접 호출(CORS)을 허용한다 → Phase 1 에 맞다.
+        url = "https://generativelanguage.googleapis.com/v1beta/models/" +
+              encodeURIComponent(model) + ":generateContent";
+        headers = { "content-type": "application/json", "x-goog-api-key": key };
+        var gParts = [{ text: userText }];
+        images.forEach(function (uri) {
+          var gp = parseDataURI(uri);
+          if (gp) gParts.push({ inline_data: { mime_type: gp.media_type, data: gp.base64 } });
+        });
+        body = {
+          contents: [{ role: "user", parts: gParts }],
+          generationConfig: { responseMimeType: "application/json", temperature: 0 }
+        };
       } else {
         url = "https://api.openai.com/v1/chat/completions";
         headers = { "content-type": "application/json", Authorization: "Bearer " + key };
@@ -108,13 +161,21 @@
 
       return doFetch(url, { method: "POST", headers: headers, body: JSON.stringify(body) })
         .then(function (res) {
-          if (!res.ok) throw new Error("미디어 분석 요청 실패 (HTTP " + res.status + ")");
+          if (!res.ok) {
+            return res.json().catch(function () { return null; }).then(function (errBody) {
+              throw httpError(res.status, errBody);
+            });
+          }
           return res.json();
         })
         .then(function (json) {
           var text = provider === "claude"
             ? (json.content && json.content[0] && json.content[0].text)
-            : (json.choices && json.choices[0] && json.choices[0].message && json.choices[0].message.content);
+            : provider === "gemini"
+              ? (json.candidates && json.candidates[0] && json.candidates[0].content &&
+                 json.candidates[0].content.parts && json.candidates[0].content.parts[0] &&
+                 json.candidates[0].content.parts[0].text)
+              : (json.choices && json.choices[0] && json.choices[0].message && json.choices[0].message.content);
           var findings = parseFindings(text);
           if (!findings) throw new Error("미디어 분석 응답을 해석하지 못했습니다.");
           findings.provider = provider;
@@ -129,8 +190,10 @@
 
   return {
     DEFAULT_MODELS: DEFAULT_MODELS,
+    GEMINI_MODELS: GEMINI_MODELS,
     parseDataURI: parseDataURI,
     parseFindings: parseFindings,
+    httpError: httpError,
     createVisionAdapter: createVisionAdapter
   };
 });

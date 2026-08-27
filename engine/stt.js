@@ -44,6 +44,10 @@
     var t0 = 0;
     var lastEndMs = 0;
     var stopping = false;
+    var lastError = null;
+
+    // 권한/보안 컨텍스트 문제는 재시작해도 반드시 다시 실패한다 → 루프 대신 종료
+    var FATAL = { "not-allowed": 1, "service-not-allowed": 1, "audio-capture": 1, "insecure-context": 1 };
 
     function start() {
       if (!Impl) throw new Error("Web Speech API 미지원 브라우저입니다.");
@@ -51,10 +55,12 @@
       t0 = now();
       lastEndMs = 0;
       stopping = false;
+      lastError = null;
       rec = new Impl();
       rec.lang = opts.lang || "ko-KR";
       rec.continuous = true;
       rec.interimResults = true;
+      try { rec.maxAlternatives = 1; } catch (e) { /* 일부 구현은 setter 없음 */ }
       rec.onresult = function (ev) {
         var interim = "";
         for (var i = ev.resultIndex; i < ev.results.length; i++) {
@@ -75,11 +81,14 @@
         if (interim && api.oninterim) api.oninterim(interim);
       };
       rec.onerror = function (ev) {
-        if (api.onerror) api.onerror(ev && ev.error ? ev.error : "stt_error");
+        lastError = ev && ev.error ? ev.error : "stt_error";
+        if (api.onerror) api.onerror(lastError);
       };
       rec.onend = function () {
-        // 사용자가 정지하기 전 브라우저가 세션을 끊으면 자동 재시작(연속 전사)
-        if (!stopping && rec) {
+        // 사용자가 정지하기 전 브라우저가 세션을 끊으면 자동 재시작(연속 전사).
+        // 단, 권한·보안 컨텍스트 오류면 재시작해도 또 실패하므로 루프에 빠지지 않고 끝낸다
+        // (아이폰/모바일에서 흔한 실패 형태).
+        if (!stopping && rec && !FATAL[lastError]) {
           try { rec.start(); return; } catch (e) { /* 재시작 실패 → 종료 처리 */ }
         }
         if (api.onend) api.onend(api.segments);

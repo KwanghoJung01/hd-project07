@@ -70,7 +70,13 @@
   <script src="../seed/issue1024.js"></script>
   <!-- 서버 연결(선택) — 값이 비어 있으면 데모 모드로 그대로 돕니다.
        config.js 에 본인 Supabase 값을 넣는 방법은 저장소의 SUPABASE-설정.md 참고. -->
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <!-- 저장소에 포함한 사본 우선(사내망·오프라인). 없거나 깨지면 CDN 으로 폴백. -->
+  <script src="vendor/supabase.min.js"></script>
+  <script>
+    if (!window.supabase) {
+      document.write('<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"><\/script>');
+    }
+  </script>
   <script src="config.js"></script>
   <script src="fi-supabase.js"></script>
   <script src="app.js"></script>

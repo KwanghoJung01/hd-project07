@@ -475,6 +475,49 @@ atest("OpenAI 형식: image_url data URI + json_object, 오류 응답은 예외�
   const bad = aivision.createVisionAdapter({ provider: "openai", api_key: "k" }, failFetch);
   await assert.rejects(() => bad.analyzeMedia({ images: ["data:image/png;base64,BBBB"] }), /401/);
 });
+atest("Gemini 형식: generativelanguage 엔드포인트 + inline_data + x-goog-api-key", async () => {
+  let captured = null;
+  const okFetch = (url, init) => {
+    captured = { url, init };
+    return Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve({
+        candidates: [{ content: { parts: [{ text: '{"summary":"누유 흔적","observed":["선회 모터"],"hazards":[]}' }] } }]
+      })
+    });
+  };
+  const adapter = aivision.createVisionAdapter({ provider: "gemini", api_key: "AIzaKEY" }, okFetch);
+  assert.strictEqual(adapter.model, "gemini-3.6-flash"); // 기본값
+  const out = await adapter.analyzeMedia({ images: ["data:image/jpeg;base64,ZZZZ"], context: "덜컹" });
+  assert.ok(/generativelanguage\.googleapis\.com.*gemini-3\.6-flash:generateContent/.test(captured.url));
+  assert.strictEqual(captured.init.headers["x-goog-api-key"], "AIzaKEY");
+  const body = JSON.parse(captured.init.body);
+  assert.strictEqual(body.contents[0].parts[1].inline_data.data, "ZZZZ");
+  assert.strictEqual(body.generationConfig.responseMimeType, "application/json");
+  assert.strictEqual(out.summary, "누유 흔적");
+});
+atest("한도 초과(429): 일일 소진과 분당 초과를 구분해 던진다", async () => {
+  const daily = () => Promise.resolve({
+    ok: false, status: 429,
+    json: () => Promise.resolve({ error: { status: "RESOURCE_EXHAUSTED", message: "quota" } })
+  });
+  const a1 = aivision.createVisionAdapter({ provider: "gemini", api_key: "k" }, daily);
+  await a1.analyzeMedia({ images: ["data:image/png;base64,AA"] }).then(
+    () => assert.fail("던져야 한다"),
+    (e) => { assert.strictEqual(e.status, 429); assert.strictEqual(e.quota, true); assert.strictEqual(e.daily, true); }
+  );
+  const perMin = () => Promise.resolve({
+    ok: false, status: 429,
+    json: () => Promise.resolve({ error: { details: [
+      { "@type": "type.googleapis.com/google.rpc.RetryInfo", retryDelay: "34s" }
+    ] } })
+  });
+  const a2 = aivision.createVisionAdapter({ provider: "gemini", api_key: "k" }, perMin);
+  await a2.analyzeMedia({ images: ["data:image/png;base64,AA"] }).then(
+    () => assert.fail("던져야 한다"),
+    (e) => { assert.strictEqual(e.daily, false); assert.strictEqual(e.retryAfterSec, 34); }
+  );
+});
 
 /* ══════════════════════ 서버 연결층 (fi-supabase.js) ══════════════════════
    이 파일은 브라우저용 UMD 가 아니라 window 에 붙는 스크립트라
