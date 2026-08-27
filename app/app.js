@@ -132,6 +132,7 @@
     aiCfgSaved: null,       // 방금 저장했다는 확인 문구
     aiProxy: null,          // { enabled, key_set } — 모든 사용자가 boot 시 읽음
     analyzing: false,       // C-01: 사진 AI 분석 중 (버튼 아래 진행 표시)
+    aiStep: null,           // 전문가 AI 작업 진행 표시: "e03" | "e04" | "e05"
     editReporter: false,    // C-01 접수자 이름·이메일 편집 펼침
     busy: null,             // 비동기 작업 안내문(미디어 분석 중 등)
     notice: null            // 일회성 안내문(STT 미지원/실패 등)
@@ -1443,8 +1444,11 @@
         '</div>';
     }
     if (!issue.ai_analysis) {
+      var busyE03 = state.aiStep === "e03";
       html += '<p class="muted">표준·매뉴얼·과거사례(Mock 저장소)를 근거로 A/B/C/D 판정을 제시합니다.</p>' +
-        '<button class="primary" id="btn-run-ai" data-action="run-ai">AI 분석 실행</button>';
+        '<button class="primary" id="btn-run-ai" data-action="run-ai"' + (busyE03 ? " disabled" : "") + '>' +
+          (busyE03 ? "분석 중…" : "AI 분석 실행") + '</button>' +
+        (busyE03 ? '<div class="analyzing-note"><span class="spin"></span> AI가 유사사례·근거를 살펴보고 있어요…</div>' : '');
     } else {
       var a = issue.ai_analysis;
       html += '<div id="ai-result">' +
@@ -1512,18 +1516,22 @@
         '</div></section>';
     } else if (opinionDone && issue.status === "IN_REVIEW") {
       var tech = issue.expert_opinion.original_text || issue.expert_opinion.rationale_text || "";
-      if (state.rewriteText == null) state.rewriteText = adapter.rewriteForCustomer(tech);
+      if (state.rewriteText == null && state.aiStep !== "e05") state.rewriteText = adapter.rewriteForCustomer(tech);
+      var busyE05 = state.aiStep === "e05";
       html += '<section class="card" id="approval-view"><h3>분석 전송 <span class="sr">(E-05 · 전송 전 확인 게이트)</span></h3>' +
         (issue.reporter_email
           ? '<p class="muted">회신 대상: <b>' + esc(issue.reporter_name || "이름 미기재") + '</b> &lt;' + esc(issue.reporter_email) + '&gt;</p>'
           : '<p class="muted">접수자 이메일 없음 — 앱 안에서만 회신됩니다.</p>') +
         '<div class="compare">' +
         '<div class="pane"><h4>전문가 원본 (불변 저장)</h4><span id="tech-original">' + esc(tech) + '</span></div>' +
-        '<div class="pane"><h4>AI 고객용 재작성 (치환 템플릿)</h4>' +
-        '<textarea id="customer-rewrite">' + esc(state.rewriteText) + '</textarea>' +
+        '<div class="pane"><h4>✨ AI 고객용 재작성 ' +
+          '<button class="editbtn" data-action="rewrite-again"' + (busyE05 ? " disabled" : "") + ' title="AI로 다시 변환" style="min-width:auto;min-height:auto;padding:3px 8px;font-size:12px">↻ 다시 변환</button></h4>' +
+        (busyE05
+          ? '<div class="analyzing-note"><span class="spin"></span> AI가 고객 언어로 바꾸는 중…</div>'
+          : '<textarea id="customer-rewrite">' + esc(state.rewriteText || "") + '</textarea>') +
         '<p class="muted">[수정]: 위 텍스트를 직접 편집하세요. 전문가 원본은 덮어쓰지 않습니다.</p></div>' +
         '</div>' +
-        '<button class="primary" id="btn-approve-send" data-action="approve-send">분석 전송</button>' +
+        '<button class="primary" id="btn-approve-send" data-action="approve-send"' + (busyE05 ? " disabled" : "") + '>분석 전송</button>' +
         '<p class="muted" style="margin-top:6px">전송 후 아래에서 <b>✉ 아웃룩 이메일 초안</b>을 선택적으로 보낼 수 있습니다. 실제 발송은 아웃룩에서 수동으로 합니다.</p>' +
         '</section>';
     }
@@ -1583,7 +1591,11 @@
       '<section class="card" id="opinion-section"><h3>구조화 결론 입력 <span class="sr">(E-04 · 자유 서술 → AI 4필드 초안 → 확정)</span></h3>' +
       '<label class="fld" for="expert-free-text">자유 서술 (음성 대신 텍스트, DP-6)</label>' +
       '<textarea id="expert-free-text" placeholder="예) 유압 오일 온도가 낮은 상태에서 선회 압력이 순간적으로 상승해서 발생하는 현상으로 판단됩니다. 예열 후 재현 확인하고 미재현 시 정상 판정하면 됩니다. 동절기 예열 절차 안내가 필요합니다.">' + esc(f.free_text) + '</textarea>' +
-      '<button class="ghost" id="btn-ai-draft" data-action="ai-draft" style="margin-top:10px;width:100%">AI 초안 생성</button>' +
+      '<button class="ghost" id="btn-ai-draft" data-action="ai-draft" style="margin-top:10px;width:100%"' +
+        (state.aiStep === "e04" ? " disabled" : "") + '>' +
+        (state.aiStep === "e04" ? "AI 초안 생성 중…" : "AI 초안 생성") + '</button>' +
+      (state.aiStep === "e04"
+        ? '<div class="analyzing-note"><span class="spin"></span> AI가 4필드 초안을 정리하고 있어요…</div>' : '') +
 
       '<h3>① 확정 원인 <span class="sr">*필수 · 계통/부품 코드 마스터 선택(자유 텍스트 금지)</span></h3>' +
       '<input type="text" id="part-search" placeholder="🔍 부품/계통 검색 (예: 선회, 릴리프, SW-HYD)" value="' + esc(state.partQuery) + '">' +
@@ -1649,6 +1661,23 @@
     state.opinionForm = null;
     state.partQuery = "";
     state.rewriteText = null;
+  }
+
+  /**
+   * 전문가 AI 작업 진행 표시 — Mock 엔진은 즉시 끝나지만, 사용자가 "AI가 처리 중" 임을
+   * 인지하도록 짧은 스피너를 보인 뒤 결과를 반영한다.
+   * @param {string} key  "e03" | "e04" | "e05"
+   * @param {Function} work  실제 작업(동기)
+   */
+  function aiStep(key, work) {
+    if (state.aiStep) return;               // 겹치기 방지
+    state.aiStep = key;
+    render();
+    setTimeout(function () {
+      try { work(); } catch (e) { state.notice = "AI 처리 실패: " + ((e && e.message) || e); }
+      state.aiStep = null;
+      render();
+    }, 550);
   }
 
   function handleAction(action, el) {
@@ -1933,18 +1962,20 @@
 
       /* E-03 AI 분석 */
       case "run-ai": {
-        var sc = scenarioOf(issue);
-        var gg = E.gap.analyze(MNT, sc, issue.collected);
-        issue.ai_analysis = adapter.analyzeIssue({
-          collected: issue.collected,
-          sufficiency: gg.sufficiency,
-          expertChecks: issue.expert_checks,
-          equipment: issue.equipment_ref
+        aiStep("e03", function () {
+          var sc = scenarioOf(issue);
+          var gg = E.gap.analyze(MNT, sc, issue.collected);
+          issue.ai_analysis = adapter.analyzeIssue({
+            collected: issue.collected,
+            sufficiency: gg.sufficiency,
+            expertChecks: issue.expert_checks,
+            equipment: issue.equipment_ref
+          });
+          E.statemachine.appendAudit(issue, "ai_analysis",
+            { verdict: issue.ai_analysis.verdict, confidence: issue.ai_analysis.confidence }, "mock-ai");
+          Store.save(db);
         });
-        E.statemachine.appendAudit(issue, "ai_analysis",
-          { verdict: issue.ai_analysis.verdict, confidence: issue.ai_analysis.confidence }, "mock-ai");
-        Store.save(db);
-        break;
+        return;
       }
       case "request-field": {
         var items = (issue.ai_analysis.missing_info || []).slice();
@@ -1964,19 +1995,27 @@
           alert("자유 서술이 너무 깁니다(" + free.length + "자). " + MAX_FREE_TEXT + "자 이내로 정리해 주세요.");
           return;
         }
-        var draft2 = adapter.draftStructuredOpinion(free);
-        var f2 = state.opinionForm;
-        f2.part_code = draft2.cause_part_code || f2.part_code;
-        f2.action_type = draft2.action_type || f2.action_type;
-        f2.action_detail = draft2.action_detail || f2.action_detail;
-        f2.rationale_text = draft2.rationale_text || f2.rationale_text;
-        f2.prevention = draft2.prevention || f2.prevention;
-        f2.undetermined = draft2.cause_undetermined && !f2.part_code;
-        state.partQuery = "";
-        E.statemachine.appendAudit(issue, "ai_opinion_draft",
-          { part_code: draft2.cause_part_code, action_type: draft2.action_type }, "mock-ai");
-        Store.save(db);
-        break;
+        aiStep("e04", function () {
+          var draft2 = adapter.draftStructuredOpinion(free);
+          var f2 = state.opinionForm;
+          f2.part_code = draft2.cause_part_code || f2.part_code;
+          f2.action_type = draft2.action_type || f2.action_type;
+          f2.action_detail = draft2.action_detail || f2.action_detail;
+          f2.rationale_text = draft2.rationale_text || f2.rationale_text;
+          f2.prevention = draft2.prevention || f2.prevention;
+          f2.undetermined = draft2.cause_undetermined && !f2.part_code;
+          state.partQuery = "";
+          E.statemachine.appendAudit(issue, "ai_opinion_draft",
+            { part_code: draft2.cause_part_code, action_type: draft2.action_type }, "mock-ai");
+          Store.save(db);
+        });
+        return;
+      }
+      case "rewrite-again": {
+        var techR = issue && issue.expert_opinion
+          ? (issue.expert_opinion.original_text || issue.expert_opinion.rationale_text || "") : "";
+        aiStep("e05", function () { state.rewriteText = adapter.rewriteForCustomer(techR); });
+        return;
       }
       case "pick-part": {
         syncOpinionForm();
