@@ -2106,13 +2106,16 @@
 
   document.getElementById("mode-reporter").addEventListener("click", function () {
     state.mode = "reporter"; state.view = "c04"; state.hl = null;
-    if (SERVER) banner("server", isAnonSession() ? "접수 내용은 전문가에게 전달됩니다." : undefined);
+    if (SERVER) banner(isAnonSession() ? "server_reporter" : "server_expert",
+      isAnonSession() ? undefined : "전문가 " + USER.name + " · 접수 화면 미리보기");
     render();
   });
   document.getElementById("mode-expert").addEventListener("click", function () {
     // 서버 모드에서 전문가 화면은 인증이 필요하다. 익명(접수자) 세션이면 로그인 화면으로.
     if (SERVER && isAnonSession()) { renderLogin(); return; }
-    state.mode = "expert"; state.view = "e01"; state.hl = null; render();
+    state.mode = "expert"; state.view = "e01"; state.hl = null;
+    if (SERVER) banner("server_expert");
+    render();
   });
   document.getElementById("btn-reset").addEventListener("click", function () {
     if (!confirm("모든 로컬 데이터(이슈 + 첨부 미디어)를 초기화할까요?")) return;
@@ -2153,6 +2156,9 @@
     var map = {
       connecting: ["서버에 연결하는 중…", "#e8edf3", "#334155"],
       server: ["서버에 연결됨 — 접수한 이슈를 전문가가 이어받습니다.", "#e3f4ec", "#0a6045"],
+      // 역할이 헷갈리지 않게 띠 문구도 구분한다
+      server_reporter: ["📝 접수 모드 (로그인 안 함) — 올린 내용은 전문가에게 전달됩니다.", "#eef4ff", "#1149b8"],
+      server_expert: ["🛠 전문가 모드 — 접수된 이슈를 처리합니다.", "#e3f4ec", "#0a6045"],
       login: ["로그인이 필요합니다.", "#e8edf3", "#334155"],
       demo: ["이 브라우저에만 저장됩니다 — 다른 사람에게는 보이지 않습니다.", "#fdf4e3", "#7a4f00"]
     };
@@ -2206,12 +2212,15 @@
   /** 역할에 없는 모드는 버튼째 감춘다 (열어 두면 저장만 막혀 이유를 알 수 없다) */
   function applyRoles() {
     var r = USER.roles || [];
+    var anon = isAnonSession();
     // 익명 접수자에게는 [전문가] 버튼을 남겨 둔다 — 그 버튼이 곧 로그인 입구다.
-    var only = SERVER && r.length > 0 && !isAnonSession();
+    var only = SERVER && r.length > 0 && !anon;
     var mr = document.getElementById("mode-reporter");
     var me_ = document.getElementById("mode-expert");
     if (mr) mr.hidden = only && r.indexOf("reporter") === -1;
     if (me_) me_.hidden = only && r.indexOf("expert") === -1 && r.indexOf("admin") === -1;
+    // 익명이면 [전문가] 는 "로그인" 임을 이름으로 못박는다
+    if (me_) me_.textContent = (SERVER && anon) ? "전문가 로그인" : "전문가";
     if (mr && mr.hidden && state.mode === "reporter") { state.mode = "expert"; state.view = "e01"; }
     if (me_ && me_.hidden && state.mode === "expert") { state.mode = "reporter"; state.view = "c04"; }
   }
@@ -2219,11 +2228,20 @@
   function paintWho() {
     var slot = document.getElementById("auth-slot");
     if (!slot) return;
-    // 데모 모드거나 익명 접수자면 계정 표시가 없다 (로그인 입구는 [전문가] 버튼).
-    if (!SERVER || isAnonSession()) { slot.innerHTML = ""; return; }
+    if (!SERVER) { slot.innerHTML = ""; return; }   // 데모(로컬) 모드 — 표시 없음
+
+    if (isAnonSession()) {
+      // 익명 접수자 — "지금 로그인 안 한 접수 모드" 임을 항상 보이게
+      slot.innerHTML =
+        '<span class="auth-who auth-anon">● 접수 모드 · 로그인 안 함</span>' +
+        '<button id="btn-goexpert" class="util" type="button">전문가 로그인</button>';
+      var g = document.getElementById("btn-goexpert");
+      if (g) g.addEventListener("click", function () { renderLogin(); });
+      return;
+    }
     var roles = (USER.roles || []).join("·") || "역할 없음";
     slot.innerHTML =
-      '<span class="auth-who">' + esc(USER.name) + ' <span class="role">' + esc(roles) + '</span></span>' +
+      '<span class="auth-who auth-in">● ' + esc(USER.name) + ' <span class="role">' + esc(roles) + '</span></span>' +
       '<button id="btn-signout" class="util" type="button">로그아웃</button>';
     var b = document.getElementById("btn-signout");
     if (b) b.addEventListener("click", function () {
@@ -2273,7 +2291,7 @@
     // 익명 세션은 그대로 두고 접수자 화면으로만 되돌린다
     if (back) back.addEventListener("click", function () {
       state.mode = "reporter"; state.view = "c04";
-      if (SERVER) { banner("server", "접수 내용은 전문가에게 전달됩니다."); } else { banner("demo"); }
+      banner(SERVER ? "server_reporter" : "demo");
       render();
     });
   }
@@ -2298,7 +2316,7 @@
       USER = { name: "현장 접수자", roles: ["reporter"] };
       state.mode = "reporter";
       state.view = "c04";
-      banner("server", "접수 내용은 전문가에게 전달됩니다. 이 기기에서 진행 상황을 볼 수 있어요.");
+      banner("server_reporter");
       applyRoles();
       paintWho();
       render();
@@ -2326,7 +2344,7 @@
       SERVER = true;
       window.FISupabase.setMode("server");
       db = loaded;
-      banner("server");
+      banner("server_expert", USER.name ? "로그인: " + USER.name : undefined);
       state.mode = "expert";
       applyRoles();
       paintWho();

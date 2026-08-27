@@ -35,17 +35,25 @@
   .hd.hd-app .topbar-actions { flex: 1 0 100%; }
 }
 
-/* ── 로그인 상태 표시 ──────────────────────────────────────────────── */
+/* ── 로그인 상태 표시 — 지금 접수자인지 전문가인지 한눈에 ────────────── */
 .hd.hd-app .auth-slot { display: inline-flex; align-items: center; gap: 8px; }
 .hd.hd-app .auth-who {
-  font-size: 12.5px; color: rgba(255,255,255,.86);
+  font-size: 12.5px; font-weight: 700;
   display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
+  border-radius: 999px; padding: 4px 10px;
 }
+/* 익명 접수자 — 노란 계열로 "로그인 안 함" 을 눈에 띄게 */
+.hd.hd-app .auth-who.auth-anon { background: #ffd54a; color: #4a3500; }
+/* 로그인한 전문가/관리자 — 초록 계열 */
+.hd.hd-app .auth-who.auth-in { background: rgba(255,255,255,.15); color: #eafff4; }
 .hd.hd-app .auth-who .role {
   font-size: 11px; font-weight: 700; letter-spacing: .02em;
-  background: rgba(255,255,255,.16); color: #fff;
-  border-radius: 999px; padding: 2px 8px;
+  background: rgba(0,0,0,.18); color: #fff;
+  border-radius: 999px; padding: 2px 7px;
 }
+.hd.hd-app .auth-who.auth-in .role { background: rgba(0,0,0,.28); }
+/* '전문가' 토글이 익명일 때 '전문가 로그인' 으로 길어져도 안 깨지게 */
+.hd.hd-app .mode-toggle button { white-space: nowrap; }
 
 /* ── 로그인 입력칸 ──────────────────────────────────────────────────
    style.css 의 입력 규칙이 `input[type=text]` 만 골라서
