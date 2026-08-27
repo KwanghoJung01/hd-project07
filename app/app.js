@@ -127,6 +127,8 @@
     activeSeg: null,        // 근거 점프로 강조된 음성 세그먼트 {media_id, index}
     settingsOpen: false,
     aiConfig: null,         // 관리자가 설정 열면 서버 공용 AI 설정(현재값) 채워짐
+    aiCfgLoading: false,
+    aiCfgErr: null,
     editReporter: false,    // C-01 접수자 이름·이메일 편집 펼침
     busy: null,             // 비동기 작업 안내문(미디어 분석 중 등)
     notice: null            // 일회성 안내문(STT 미지원/실패 등)
@@ -820,11 +822,28 @@
       return '<option value="' + esc(m.id) + '"' + sel + '>' + esc(m.label) + '</option>';
     }).join("");
     var freeModel = (c && c.model && !E.aivision.GEMINI_MODELS.some(function (m) { return m.id === c.model; })) ? c.model : "";
-    return '<div class="notice" style="border:1px solid rgba(0,0,0,.1);padding:12px;border-radius:8px;margin-bottom:12px">' +
+
+    // 현재 상태 — 크게, 색으로 구분
+    var statusHTML;
+    if (state.aiCfgErr) {
+      statusHTML = '<div class="warnbox" style="margin:6px 0 10px"><div class="t">설정을 읽지 못했습니다</div><p>' +
+        esc(state.aiCfgErr) + '</p><p class="muted">supabase/schema.sql 을 SQL Editor 에서 다시 실행했는지 확인하세요.</p></div>';
+    } else if (state.aiCfgLoading || !c) {
+      statusHTML = '<p class="muted" style="margin:6px 0 10px">현재 설정 확인 중…</p>';
+    } else if (c.key_set) {
+      statusHTML = '<p style="margin:6px 0 10px"><span class="badge b-ANSWERED">✅ 키 설정됨</span> ' +
+        '<code>' + esc(c.key_hint || "****") + '</code> · 모델 <code>' + esc(c.model || "gemini-3.6-flash(기본)") + '</code>' +
+        (c.updated_at ? ' <span class="muted">· 마지막 변경 ' + fmt(c.updated_at) + '</span>' : '') + '</p>';
+    } else {
+      statusHTML = '<p style="margin:6px 0 10px"><span class="badge b-REOPENED">⚠ 키 미설정</span> — 아래에 키를 넣고 저장하세요.</p>';
+    }
+
+    return '<div class="notice" style="border:1px solid var(--line);padding:12px;border-radius:8px;margin-bottom:12px">' +
       '<b>🔐 서버 공용 AI 키 (관리자)</b>' +
+      statusHTML +
       '<p class="muted" style="margin:4px 0 10px">여기에 넣으면 <b>모든 사용자</b>가 개별 키 없이 사진·영상 AI 분석을 씁니다. ' +
         '키는 서버에만 저장되고 다른 사용자 화면으로 내려가지 않습니다.' +
-        (proxy ? "" : ' <b style="color:#c8341f">※ 지금 config.js 의 AI_PROXY 가 꺼져 있어 실제로는 적용되지 않습니다.</b>') + '</p>' +
+        (proxy ? "" : ' <b style="color:var(--danger)">※ 지금 config.js 의 AI_PROXY 가 꺼져 있어 실제 분석에는 아직 적용되지 않습니다.</b>') + '</p>' +
       '<label class="fld" for="ai-cfg-provider">제공사</label>' +
       '<select id="ai-cfg-provider"><option value="gemini"' + (!c || c.provider === "gemini" ? " selected" : "") + '>Gemini (무료 티어)</option></select>' +
       '<label class="fld" for="ai-cfg-model">모델</label>' +
@@ -832,9 +851,9 @@
       '<label class="fld" for="ai-cfg-model-free">모델 직접 입력 (선택 — 비우면 위 선택값. 예: gemini-3.7-flash)</label>' +
       '<input type="text" id="ai-cfg-model-free" placeholder="기본값 사용" value="' + esc(freeModel) + '">' +
       '<label class="fld" for="ai-cfg-key">API 키' +
-        (c && c.key_set ? ' <span class="muted">— 현재 설정됨 (' + esc(c.key_hint || "****") + '). 바꿀 때만 입력</span>' : '') + '</label>' +
+        (c && c.key_set ? ' <span class="muted">— 바꿀 때만 입력</span>' : '') + '</label>' +
       '<input type="password" id="ai-cfg-key" autocomplete="new-password" placeholder="' +
-        (c && c.key_set ? "(변경하지 않으려면 비워 두세요)" : "Google AI Studio 키") + '">' +
+        (c && c.key_set ? "설정됨 (" + esc(c.key_hint || "****") + ") — 변경 시에만 입력" : "Google AI Studio 키") + '">' +
       '<div class="row-actions" style="margin-top:8px">' +
         '<button class="primary" data-action="save-ai-config" style="margin-top:0">서버에 저장</button>' +
         (c && c.updated_at ? '<span class="muted">마지막 변경 ' + fmt(c.updated_at) + '</span>' : '') +
@@ -1674,10 +1693,16 @@
         state.settingsOpen = true;
         // 관리자면 서버 공용 AI 설정(현재 값)을 읽어 온다 — 키 원문은 안 옴, 끝 4자리만.
         if (isAdmin() && window.FISupabase && window.FISupabase.getAiConfig) {
+          state.aiCfgLoading = true; state.aiCfgErr = null;
           window.FISupabase.getAiConfig().then(function (c) {
             state.aiConfig = c || { provider: "gemini", model: "", key_set: false };
+            state.aiCfgLoading = false;
             render();
-          }).catch(function () { state.aiConfig = null; });
+          }).catch(function (e) {
+            state.aiCfgErr = (e && e.message) || String(e);
+            state.aiCfgLoading = false;
+            render();
+          });
         }
         break;
       }

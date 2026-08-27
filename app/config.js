@@ -55,7 +55,7 @@
      *   2) 그 함수 Secrets 에 GEMINI_API_KEY 입력
      * 함수가 없으면 자동으로 개별 키(⚙ 설정) 또는 오프라인 규칙 엔진으로 내려갑니다.
      */
-    AI_PROXY: false
+    AI_PROXY: true
   };
 
   // 주소로 임시 전환 — 커밋 없이 잠깐 확인할 때
