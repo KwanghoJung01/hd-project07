@@ -285,6 +285,8 @@
       title: issue.title || code,
       raw_text: (issue.user_input && issue.user_input.original_text) || '',
       structured: issue,
+      reporter_name: issue.reporter_name || null,
+      reporter_email: issue.reporter_email || null,
       equipment: eq ? (eq.model + (eq.sn ? ' · SN ' + eq.sn : '')) : null,
       site: issue.site || null
     };

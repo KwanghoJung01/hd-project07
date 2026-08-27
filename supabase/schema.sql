@@ -41,6 +41,9 @@ create table if not exists public.issue (
   -- 여기에 손으로 적으면 engine/statemachine.js 와 갈라진다 (실제로 갈라져 있었다).
   status        text not null default 'DRAFT',
   reporter_id   uuid,
+  -- 접수자가 스스로 적은 이름·이메일(계정 아님). 전문가 회신·아웃룩 메일 초안에 쓴다.
+  reporter_name  text,
+  reporter_email text,
   expert_id     uuid,
   equipment     text,
   site          text,
@@ -54,6 +57,9 @@ create table if not exists public.issue (
     check ((status in ('RESOLVED','KNOWLEDGE_READY')) = (resolved_at is not null))
 );
 create index if not exists issue_status_idx on public.issue (status, created_at desc);
+-- 이미 만들어진 표에도 붙인다 (create table if not exists 는 컬럼을 더해 주지 않는다)
+alter table public.issue add column if not exists reporter_name  text;
+alter table public.issue add column if not exists reporter_email text;
 
 -- AI 가 던지는 질문 — 판단을 바꿀 질문 3개 이내
 create table if not exists public.question (

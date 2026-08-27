@@ -85,6 +85,26 @@
   };
   var settings = Settings.load();
 
+  /**
+   * 접수자 프로필(이름·이메일) — 이 기기에 저장해 두고 접수 화면에서 자동으로 채운다.
+   * 전문가가 "누구에게 회신하는지" 알고, 아웃룩 메일 초안에도 쓰인다.
+   * 서버로는 issue.reporter_name / reporter_email 로 함께 올라간다.
+   */
+  var Reporter = {
+    KEY: "field_insight_reporter_v1",
+    load: function () {
+      try {
+        var r = JSON.parse(localStorage.getItem(this.KEY) || "{}");
+        return { name: (r.name || "").trim(), email: (r.email || "").trim() };
+      } catch (e) { return { name: "", email: "" }; }
+    },
+    save: function (p) {
+      try { localStorage.setItem(this.KEY, JSON.stringify({ name: (p.name || "").trim(), email: (p.email || "").trim() })); } catch (e) {}
+    }
+  };
+  var reporter = Reporter.load();
+  function reporterReady() { return !!(reporter.name && /.+@.+\..+/.test(reporter.email)); }
+
   var state = {
     mode: "reporter",       // reporter | expert
     view: "c04",            // reporter: c01/c02/c03/c04/cdetail/safety · expert: e01/edetail
@@ -99,6 +119,7 @@
     mediaURLs: {},          // media_id → objectURL 캐시
     activeSeg: null,        // 근거 점프로 강조된 음성 세그먼트 {media_id, index}
     settingsOpen: false,
+    editReporter: false,    // C-01 접수자 이름·이메일 편집 펼침
     busy: null,             // 비동기 작업 안내문(미디어 분석 중 등)
     notice: null            // 일회성 안내문(STT 미지원/실패 등)
   };
@@ -640,6 +661,9 @@
       equipment_ref: d.equipment,
       assignee_id: "expert-demo",
       linked_issues: [],
+      /* 접수자 신원(자기기입) — 전문가 회신 대상, 아웃룩 메일 초안에 사용 */
+      reporter_name: reporter.name || null,
+      reporter_email: reporter.email || null,
       /* DP-1/FR-03: 고객 원본은 불변 저장, AI 해석(collected)과 분리 */
       user_input: {
         input_id: d.input_id, input_type: state.draftMedia.length ? "multimodal" : "text",
@@ -858,6 +882,26 @@
         (on ? "설정 보기" : "API 키 넣기") + '</button></div>';
   }
 
+  /**
+   * 접수자 이름·이메일 — 한 번 넣어 두면 이 기기에서 다음 접수부터 자동으로 채워진다.
+   * 값이 있으면 한 줄 요약 + [수정], 없거나 편집 중이면 입력칸.
+   */
+  function reporterFieldsHTML() {
+    if (reporterReady() && !state.editReporter) {
+      return '<div class="rep-id notice" style="display:flex;align-items:center;gap:8px;justify-content:space-between">' +
+        '<span>접수자: <b>' + esc(reporter.name) + '</b> &lt;' + esc(reporter.email) + '&gt;</span>' +
+        '<button class="editbtn" type="button" data-action="edit-reporter">수정</button></div>';
+    }
+    return '<div class="rep-id-form">' +
+      '<label class="fld" for="rep-name">이름</label>' +
+      '<input id="rep-name" type="text" autocomplete="name" placeholder="예) 홍길동" value="' + esc(reporter.name) + '">' +
+      '<label class="fld" for="rep-email">이메일 <span class="muted">(전문가 회신을 받을 주소)</span></label>' +
+      '<input id="rep-email" type="email" inputmode="email" autocomplete="email" placeholder="you@example.com" value="' + esc(reporter.email) + '">' +
+      '<p class="muted">이 기기에 저장되어 다음 접수부터 자동으로 채워집니다. 접수 내용과 함께 전문가에게 전달됩니다.</p>' +
+      (reporterReady() ? '<button class="editbtn" type="button" data-action="edit-reporter-done">접기</button>' : '') +
+      '</div>';
+  }
+
   /* ── C-01 입력 + 장비 선택 + 음성/미디어 첨부 (2차 고도화: 핸즈프리 우선) ── */
   function viewC01() {
     var sttHint;
@@ -878,6 +922,7 @@
       '<section class="card" id="view-c01">' +
       '<h2>무슨 일이 있었나요? <span class="sr">(C-01)</span></h2>' +
       '<p class="muted">화면을 보기 어려운 현장에서는 <b>음성으로 접수</b>를 누르고 말씀하세요. 전문용어는 필요 없습니다.</p>' +
+      reporterFieldsHTML() +
       '<button class="record-btn" id="btn-record" data-action="record-start">🎤 음성으로 접수 (녹음 시작)</button>' +
       '<p class="muted" style="margin-top:4px">' + esc(sttHint) + '</p>' +
       visionStateHTML() +
@@ -1145,6 +1190,64 @@
   }
 
   /* ── E-02~E-05 이슈 상세 (근거 점프 · AI 분석 · 구조화 결론 · 승인) ── */
+  /**
+   * 전문가 최종 회신을 **아웃룩 메일 초안**으로 만든다 (mailto → 기본 메일 앱 = 아웃룩).
+   * 격식 있는 한국어 비즈니스 메일 형식. 실제 발송은 전문가가 아웃룩에서 수동으로 한다.
+   */
+  function replyEmail(issue) {
+    var cr = issue.customer_response || {};
+    var op = issue.expert_opinion || {};
+    var name = issue.reporter_name || "고객";
+    var eq = issue.equipment_ref;
+    var eqStr = eq ? (eq.model + (eq.sn ? " / SN " + eq.sn : "") + (eq.hours ? " / " + eq.hours + "h" : "")) : "";
+    var code = "이슈 #" + issue.issue_id;
+    var subject = "[Field-Insight] " + code + " 회신 — " + (issue.title || "장비 이상 현상");
+
+    var cause = op.cause_undetermined
+      ? ("원인 미확정" + (op.cause_undetermined_reason_label || op.cause_undetermined_reason ? " (" + (op.cause_undetermined_reason_label || op.cause_undetermined_reason) + ")" : ""))
+      : [op.cause_system_label, op.cause_part_label].filter(Boolean).join(" / ");
+
+    var L = [];
+    L.push(name + " 님, 안녕하세요.");
+    L.push("");
+    L.push("접수해 주신 현상(" + code + (eqStr ? ", " + eqStr : "") + ")에 대한 검토 결과를 아래와 같이 안내드립니다.");
+    L.push("");
+    L.push("── 검토 결과 ──────────────────────");
+    L.push((cr.simplified_response || "").trim());
+    L.push("");
+    if (cause || op.action_detail || op.action_type || op.prevention) {
+      L.push("── 요약 ──────────────────────────");
+      if (cause) L.push("· 확정 원인 : " + cause);
+      if (op.action_detail || op.action_type) L.push("· 조치 내용 : " + (op.action_detail || op.action_type));
+      if (op.prevention) L.push("· 재발 방지 : " + op.prevention);
+      L.push("");
+    }
+    L.push("추가로 궁금하신 점이 있으시면 이 메일로 회신해 주시기 바랍니다.");
+    L.push("감사합니다.");
+    L.push("");
+    L.push("Field-Insight 기술지원  |  " + (USER.name || "담당자") + " 드림");
+
+    var body = L.join("\r\n");
+    // mailto 는 클라이언트에 따라 ~2000자에서 잘린다 — 안전선에서 줄인다
+    if (body.length > 1800) body = body.slice(0, 1780) + "\r\n\r\n(이하 생략 — 상세 내용은 회신 요청 바랍니다.)";
+
+    return {
+      to: issue.reporter_email || "",
+      subject: subject,
+      body: body,
+      href: "mailto:" + encodeURIComponent(issue.reporter_email || "") +
+        "?subject=" + encodeURIComponent(subject) + "&body=" + encodeURIComponent(body)
+    };
+  }
+
+  /** 기본 메일 앱(아웃룩)으로 초안 열기 — 페이지 이동 없이 */
+  function openMailDraft(href) {
+    var a = document.createElement("a");
+    a.href = href; a.style.display = "none";
+    document.body.appendChild(a); a.click();
+    setTimeout(function () { a.remove(); }, 0);
+  }
+
   function viewEDetail() {
     var issue = getIssue(state.current);
     if (!issue) { state.view = "e01"; return viewE01(); }
@@ -1188,9 +1291,14 @@
         esc(t.slice(state.hl.end));
     }
 
+    var repLine = (issue.reporter_name || issue.reporter_email)
+      ? '<p class="muted">접수자: <b>' + esc(issue.reporter_name || "이름 미기재") + '</b>' +
+        (issue.reporter_email ? ' &lt;' + esc(issue.reporter_email) + '&gt;' : ' · 이메일 미기재') + '</p>'
+      : '<p class="muted">접수자 신원 미기재 (익명 접수)</p>';
     html += '<section class="card" id="issue-detail">' +
       '<h2>ISSUE #' + issue.issue_id + ' <span class="badge b-' + issue.status + '" id="edetail-status">' + esc(E.statemachine.LABELS[issue.status]) + '</span></h2>' +
       '<p class="muted">정비 · ' + esc(issue.safety_level) + ' · ' + esc(eqLabel(issue.equipment_ref)) + ' · ' + fmt(issue.created_at) + ' · 정보충분도 ' + Math.round(g.sufficiency * 100) + '%</p>' +
+      repLine +
       '<h3>정형화 결과 <span class="sr">(E-02 · 근거 클릭 시 원문 하이라이트)</span></h3>' +
       '<table class="fields">' + rows + '</table>' +
       ((issue.expert_checks || []).length ?
@@ -1262,24 +1370,41 @@
         '<p class="muted">검토 중(IN_REVIEW) 상태에서 입력할 수 있습니다.</p></section>';
     }
 
-    /* E-05: 고객 답변 승인 */
+    /* E-05: 고객 답변 승인 / 분석 전송 + (선택) 아웃룩 이메일 */
     if (issue.customer_response) {
-      html += '<section class="card"><h3>고객 회신 (발송 완료) <span class="sr">(E-05)</span></h3>' +
+      var em = issue.customer_response.email || null;
+      var canMail = !!issue.reporter_email;
+      var mailStatus = em && em.sent_at
+        ? '<span class="badge">✉ 메일 발송 기록됨 · ' + fmt(em.sent_at) + '</span>'
+        : em && em.drafted_at
+          ? '<span class="badge">✉ 초안 작성함 · ' + fmt(em.drafted_at) + ' <button class="editbtn" data-action="email-mark-sent">보냄으로 기록</button></span>'
+          : "";
+      html += '<section class="card"><h3>고객 회신 (전송 완료) <span class="sr">(E-05)</span></h3>' +
         '<div class="compare">' +
         '<div class="pane"><h4>전문가 원본</h4>' + esc(issue.customer_response.technical_original) + '</div>' +
-        '<div class="pane"><h4>고객용 재작성 (발송본)</h4>' + esc(issue.customer_response.simplified_response) + '</div>' +
-        '</div><p class="muted">승인 ' + esc(issue.customer_response.approved_by) + ' · ' + fmt(issue.customer_response.approved_at) + '</p></section>';
+        '<div class="pane"><h4>고객용 재작성 (전송본)</h4>' + esc(issue.customer_response.simplified_response) + '</div>' +
+        '</div>' +
+        '<p class="muted">승인 ' + esc(issue.customer_response.approved_by) + ' · ' + fmt(issue.customer_response.approved_at) + '</p>' +
+        '<div class="row-actions" style="margin-top:8px">' +
+        (canMail
+          ? '<button class="util" data-action="email-draft" title="' + esc(issue.reporter_email) + ' 로 아웃룩 메일 초안 작성">✉ 아웃룩 이메일 초안' + (em ? ' 다시 열기' : '') + '</button> ' + mailStatus
+          : '<span class="muted">접수자 이메일이 없어 메일 초안을 만들 수 없습니다.</span>') +
+        '</div></section>';
     } else if (opinionDone && issue.status === "IN_REVIEW") {
       var tech = issue.expert_opinion.original_text || issue.expert_opinion.rationale_text || "";
       if (state.rewriteText == null) state.rewriteText = adapter.rewriteForCustomer(tech);
-      html += '<section class="card" id="approval-view"><h3>고객 답변 승인 <span class="sr">(E-05 · 발송 전 1-click 승인 게이트)</span></h3>' +
+      html += '<section class="card" id="approval-view"><h3>분석 전송 <span class="sr">(E-05 · 전송 전 확인 게이트)</span></h3>' +
+        (issue.reporter_email
+          ? '<p class="muted">회신 대상: <b>' + esc(issue.reporter_name || "이름 미기재") + '</b> &lt;' + esc(issue.reporter_email) + '&gt;</p>'
+          : '<p class="muted">접수자 이메일 없음 — 앱 안에서만 회신됩니다.</p>') +
         '<div class="compare">' +
         '<div class="pane"><h4>전문가 원본 (불변 저장)</h4><span id="tech-original">' + esc(tech) + '</span></div>' +
         '<div class="pane"><h4>AI 고객용 재작성 (치환 템플릿)</h4>' +
         '<textarea id="customer-rewrite">' + esc(state.rewriteText) + '</textarea>' +
         '<p class="muted">[수정]: 위 텍스트를 직접 편집하세요. 전문가 원본은 덮어쓰지 않습니다.</p></div>' +
         '</div>' +
-        '<button class="primary" id="btn-approve-send" data-action="approve-send">승인 후 발송</button>' +
+        '<button class="primary" id="btn-approve-send" data-action="approve-send">분석 전송</button>' +
+        '<p class="muted" style="margin-top:6px">전송 후 아래에서 <b>✉ 아웃룩 이메일 초안</b>을 선택적으로 보낼 수 있습니다. 실제 발송은 아웃룩에서 수동으로 합니다.</p>' +
         '</section>';
     }
 
@@ -1413,6 +1538,17 @@
       /* 내비게이션 */
       case "go-c01": state.view = "c01"; state.draft = null; break;
       case "go-c04": state.view = "c04"; state.editReq = null; break;
+
+      /* C-01 접수자 이름·이메일 */
+      case "edit-reporter": state.editReporter = true; break;
+      case "edit-reporter-done": {
+        var rn0 = document.getElementById("rep-name"), re0 = document.getElementById("rep-email");
+        if (rn0) reporter.name = rn0.value.trim();
+        if (re0) reporter.email = re0.value.trim();
+        Reporter.save(reporter);
+        state.editReporter = false;
+        break;
+      }
       case "go-e01": state.view = "e01"; state.hl = null; break;
       case "open-cdetail": state.current = parseInt(el.getAttribute("data-no"), 10); state.view = "cdetail"; break;
       case "open-edetail": openExpertIssue(parseInt(el.getAttribute("data-no"), 10)); break;
@@ -1425,6 +1561,15 @@
           alert("현상 설명이 너무 깁니다(" + text.length + "자). " + MAX_FREE_TEXT + "자 이내로 핵심만 적어 주세요.");
           return;
         }
+        // 접수자 이름·이메일 — 있으면 저장(다음 접수에서 자동으로 채워짐). 강제하진 않는다.
+        var rnEl = document.getElementById("rep-name"), reEl = document.getElementById("rep-email");
+        if (rnEl) reporter.name = rnEl.value.trim();
+        if (reEl) reporter.email = reEl.value.trim();
+        if (reporter.email && !/.+@.+\..+/.test(reporter.email)) {
+          alert("이메일 형식을 확인해 주세요. (전문가 회신을 받을 주소)");
+          return;
+        }
+        Reporter.save(reporter);
         state.c01Text = text;
         var eq = EQUIPMENTS[parseInt(document.getElementById("select-equipment").value, 10)];
         var hasVisual = state.draftMedia.some(function (m) { return m.kind === "image" || m.kind === "video"; });
@@ -1696,7 +1841,7 @@
         break;
       }
 
-      /* E-05 승인 후 발송 */
+      /* E-05 분석 전송 */
       case "approve-send": {
         var rewriteEl = document.getElementById("customer-rewrite");
         var simplified = rewriteEl ? rewriteEl.value.trim() : state.rewriteText;
@@ -1707,12 +1852,39 @@
           approved_by: USER.name + "(전문가)",
           approved_at: now(),
           delivered_at: now(),
-          delivery_status: "delivered"
+          delivery_status: "delivered",
+          email: null                    // 아웃룩 메일은 선택 — email-draft 에서 채운다
         };
         E.statemachine.appendAudit(issue, "customer_response_approved", { by: USER.name }, "전문가");
-        E.statemachine.transition(issue, "ANSWERED", { actor: "전문가", note: "승인 후 발송" });
+        E.statemachine.transition(issue, "ANSWERED", { actor: "전문가", note: "분석 전송" });
         notify(issue, "전문가 답변이 도착했습니다 — 해결 여부를 알려주세요");
         state.rewriteText = null;
+        Store.save(db);
+        break;
+      }
+
+      /* E-05 (선택) 아웃룩 이메일 초안 열기 */
+      case "email-draft": {
+        if (!issue.customer_response) { alert("먼저 [분석 전송]을 눌러 회신을 확정하세요."); return; }
+        if (!issue.reporter_email) { alert("접수자 이메일이 없어 메일 초안을 만들 수 없습니다."); return; }
+        var mail = replyEmail(issue);
+        openMailDraft(mail.href);
+        var wasDrafted = issue.customer_response.email && issue.customer_response.email.drafted_at;
+        issue.customer_response.email = {
+          to: mail.to, subject: mail.subject,
+          drafted_at: (issue.customer_response.email && issue.customer_response.email.drafted_at) || now(),
+          sent_at: (issue.customer_response.email && issue.customer_response.email.sent_at) || null
+        };
+        if (!wasDrafted) E.statemachine.appendAudit(issue, "reply_email_drafted", { to: mail.to }, "전문가");
+        notify(issue, "아웃룩 메일 초안을 열었습니다. 아웃룩에서 검토 후 직접 보내시고, 보내셨으면 [보냄으로 기록]을 눌러 주세요.");
+        Store.save(db);
+        break;
+      }
+      case "email-mark-sent": {
+        if (!(issue.customer_response && issue.customer_response.email)) return;
+        issue.customer_response.email.sent_at = now();
+        E.statemachine.appendAudit(issue, "reply_email_sent",
+          { to: issue.customer_response.email.to }, "전문가");
         Store.save(db);
         break;
       }
@@ -1758,6 +1930,8 @@
   });
   root.addEventListener("input", function (ev) {
     if (ev.target.id === "input-text") state.c01Text = ev.target.value; // 재렌더에도 입력 유지
+    if (ev.target.id === "rep-name") reporter.name = ev.target.value;
+    if (ev.target.id === "rep-email") reporter.email = ev.target.value;
   });
 
   /* 끌어다 놓기.
