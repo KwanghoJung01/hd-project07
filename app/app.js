@@ -131,6 +131,7 @@
     aiCfgErr: null,
     aiCfgSaved: null,       // 방금 저장했다는 확인 문구
     aiProxy: null,          // { enabled, key_set } — 모든 사용자가 boot 시 읽음
+    analyzing: false,       // C-01: 사진 AI 분석 중 (버튼 아래 진행 표시)
     editReporter: false,    // C-01 접수자 이름·이메일 편집 펼침
     busy: null,             // 비동기 작업 안내문(미디어 분석 중 등)
     notice: null            // 일회성 안내문(STT 미지원/실패 등)
@@ -1061,7 +1062,12 @@
       }).join("") +
       '</select>' +
       '<p class="muted" style="margin-top:6px">장비 식별(MNT-12)은 자동 획득 — 질문 예산을 쓰지 않습니다.</p>' +
-      '<button class="primary" id="btn-analyze" data-action="analyze">다음 (내용 분석)</button>' +
+      '<button class="primary" id="btn-analyze" data-action="analyze"' + (state.analyzing ? " disabled" : "") + '>' +
+        (state.analyzing ? "분석 중…" : "다음 (내용 분석)") + '</button>' +
+      (state.analyzing
+        ? '<div class="analyzing-note"><span class="spin"></span> 첨부한 사진·영상을 AI가 분석하고 있어요… ' +
+          '<span class="muted">(실패해도 접수는 계속됩니다)</span></div>'
+        : '') +
       '<button class="back" data-action="go-c04">← 내 접수 목록</button>' +
       '</section>';
   }
@@ -1688,10 +1694,12 @@
         var eq = EQUIPMENTS[parseInt(document.getElementById("select-equipment").value, 10)];
         var hasVisual = state.draftMedia.some(function (m) { return m.kind === "image" || m.kind === "video"; });
         if (visionActive() && hasVisual) {
-          state.busy = "첨부 사진·영상 AI 분석 중… (실패해도 접수는 계속됩니다)";
+          // 창 위 띠 대신 [다음] 버튼 아래에 진행 표시 (viewC01 이 state.analyzing 을 그린다)
+          state.analyzing = true;
           render();
           analyzeDraftMedia(text).then(function (findings) {
-            state.busy = null;
+            state.analyzing = false;
+            if (state.view !== "c01") { render(); return; }  // 그 사이 화면을 벗어났으면 중단
             startAnalysis(text, eq, findings);
             render();
           });

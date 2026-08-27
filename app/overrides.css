@@ -122,6 +122,24 @@ body.hd.hd-app > main {
 }
 .hd.hd-app .ai-toggle-hint { flex: 1 1 100%; font-size: 12.5px; }
 
+/* ── C-01 [다음] 아래 "AI 분석 중" 진행 표시 (창 위 띠 대신) ─────────── */
+.hd.hd-app .analyzing-note {
+  display: flex; align-items: center; gap: 10px;
+  margin-top: 10px; padding: 12px 14px;
+  background: var(--accent-soft, #eaf0fb); color: var(--accent-deep, #0d3a8f);
+  border: 1px solid var(--accent, #1149b8); border-radius: 10px;
+  font-size: 14px; font-weight: 600;
+}
+.hd.hd-app .analyzing-note .spin {
+  width: 16px; height: 16px; flex: 0 0 auto; border-radius: 50%;
+  border: 2.5px solid currentColor; border-right-color: transparent;
+  animation: fi-spin .7s linear infinite;
+}
+@keyframes fi-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .hd.hd-app .analyzing-note .spin { animation-duration: 2s; }
+}
+
 /* ════════════════════════════════════════════════════════════════════════
    이 앱은 **라이트 단일** 로 디자인됐다 (style.css 에 다크 값이 없고,
    하드코딩된 흰 배경이 많다). 공통 테마(hd-theme.css)의 자동 다크는
