@@ -273,6 +273,21 @@
     return { confirmed: last.result === 'resolved', comment: last.comment || null };
   }
 
+  /**
+   * 저장 직전에 세션이 우리가 아는 그 세션인지 확인한다.
+   * 같은 브라우저에서 전문가가 로그인/로그아웃하면 localStorage 공유 때문에
+   * 이 탭의 익명 세션이 바뀌어, 접수자 저장이 조용히 어긋난다 → 미리 명확히 막는다.
+   */
+  function assertSession() {
+    if (!isAnon()) return Promise.resolve();
+    return db().auth.getUser().then(function (r) {
+      var u = r.data && r.data.user;
+      if (!u) throw new Error('로그인 세션이 사라졌습니다. 이 브라우저에서 전문가 로그인/로그아웃이 있었다면 새로고침하세요.');
+      if (!u.is_anonymous) throw new Error('이 브라우저가 전문가 계정으로 로그인되어 있어 접수자 저장을 할 수 없습니다. 접수자는 다른 브라우저나 시크릿 창에서 이용하세요.');
+      if (me && u.id !== me.user_id) me.user_id = u.id;   // 세션 uid 로 맞춘다
+    });
+  }
+
   /** 이슈 한 건을 서버에 반영한다. 순서는 파일 머리말 참고. */
   function pushIssue(issue) {
     var code = codeOf(issue);
@@ -292,16 +307,16 @@
     };
     // 새 이슈는 항상 DRAFT 로 넣는다. 목표 상태로 바로 넣으면 관문이 막는다 —
     // 결론·회신이 아직 안 들어갔기 때문이다. 상태는 ③단계에서 올린다.
-    // 익명 접수자는 자기 uid 를 reporter_id 로 찍어야 RLS 가 insert 를 허용하고,
-    // 이후 이 기기에서 자기 이슈만 읽을 수 있다.
-    if (dbIdByCode[code] == null) {
-      head.status = 'DRAFT';
-      if (isAnon() && me.user_id) head.reporter_id = me.user_id;
-    }
+    if (dbIdByCode[code] == null) head.status = 'DRAFT';
 
-    var p = dbIdByCode[code] == null
-      ? db().from('issue').insert(head).select('id, status').single()
-      : db().from('issue').update(head).eq('id', dbIdByCode[code]).select('id, status').single();
+    var p = assertSession().then(function () {
+      // 익명 접수자는 자기 uid 를 reporter_id 로 찍어야 RLS 가 insert 를 허용하고,
+      // 이후 이 기기에서 자기 이슈만 읽는다. (assertSession 이 uid 를 최신 세션으로 맞춘 뒤)
+      if (dbIdByCode[code] == null && isAnon() && me && me.user_id) head.reporter_id = me.user_id;
+      return dbIdByCode[code] == null
+        ? db().from('issue').insert(head).select('id, status').single()
+        : db().from('issue').update(head).eq('id', dbIdByCode[code]).select('id, status').single();
+    });
 
     return p.then(function (r) {
       if (r.error) throw r.error;
