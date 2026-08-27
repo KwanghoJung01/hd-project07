@@ -102,3 +102,54 @@ body.hd.hd-app > main {
   border: 1px solid currentColor; background: transparent; color: inherit;
   border-radius: 7px; padding: 4px 10px; font-size: 12.5px; font-weight: 650; cursor: pointer;
 }
+
+/* ════════════════════════════════════════════════════════════════════════
+   이 앱은 **라이트 단일** 로 디자인됐다 (style.css 에 다크 값이 없고,
+   하드코딩된 흰 배경이 많다). 공통 테마(hd-theme.css)의 자동 다크는
+   그 위에 절반만 얹혀 스마트폰 다크 모드에서 배경↔글자 대비가 깨진다.
+   → prefers-color-scheme: dark 여도 라이트로 고정한다. (data-theme 로 명시
+     선택했을 때만 존중)
+   ════════════════════════════════════════════════════════════════════════ */
+:root { color-scheme: light; }              /* 네이티브 입력칸·스크롤바도 라이트로 */
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="dark"]) {
+    color-scheme: light;
+    /* 공통 테마 토큰을 라이트 값으로 되돌린다 */
+    --hd-bg: #f5f7fa;  --hd-surface: #ffffff;  --hd-surface-2: #f8fafc;
+    --hd-line: #d5dde7; --hd-line-soft: #e8edf3;
+    --hd-ink: #0f172a;  --hd-ink-2: #475569;   --hd-ink-3: #64748b;
+    --accent: #1149b8;  --accent-deep: #0d3a8f; --accent-soft: #eaf0fb; --on-accent: #ffffff;
+    --hd-ok: #0a6045;   --hd-ok-soft: #e3f4ec;
+    --hd-warn: #9a6400; --hd-warn-soft: #fdf4e3;
+    --hd-bad: #c8341f;  --hd-bad-soft: #fdeae7;
+    --hd-info: #1d4ed8; --hd-info-soft: #e8eefc;
+    --hd-shadow: 0 1px 2px rgba(15,23,42,.04), 0 1px 3px rgba(15,23,42,.06);
+    --hd-shadow-lg: 0 4px 6px -2px rgba(15,23,42,.05), 0 12px 24px -6px rgba(15,23,42,.10);
+    /* style.css 자체 토큰도 라이트로 못 박는다 */
+    --bg: #f4f6f8; --card: #ffffff; --ink: #1c2733; --sub: #5b6b7b;
+    --line: #dde4ea; --brand: #0f62fe; --brand-ink: #ffffff; --chip: #eef3ff;
+    --warn-bg: #fff3e6; --warn-line: #ffb562; --danger: #d7263d; --ok: #1d9a6c;
+  }
+  /* 브라우저가 자동으로 어둡게 칠하는 네이티브 컨트롤을 되돌린다 */
+  :root:not([data-theme="dark"]) input,
+  :root:not([data-theme="dark"]) select,
+  :root:not([data-theme="dark"]) textarea,
+  :root:not([data-theme="dark"]) button { color-scheme: light; }
+  :root:not([data-theme="dark"]) body { background: #f4f6f8; color: #1c2733; }
+}
+
+/* ── 스마트폰 상단 바 정리 — 버튼이 많아 여러 줄로 흩어진다 ───────────── */
+@media (max-width: 640px) {
+  .hd.hd-app .topbar-actions { gap: 6px; }
+  .hd.hd-app .mode-toggle button { min-width: 64px; padding: 0 8px; font-size: 14px; }
+  .hd.hd-app .topbar .util,
+  .hd.hd-app #btn-settings,
+  .hd.hd-app #btn-reset { min-height: 44px; padding: 0 9px; font-size: 12px; }
+  /* '시드 데모' 는 개발·설명용이라 좁은 화면에서는 감춘다 */
+  .hd.hd-app #btn-load-seed { display: none; }
+  .hd.hd-app .auth-who { font-size: 11.5px; }
+  .hd.hd-app .auth-who .role { padding: 2px 6px; }
+  /* 표·비교 두 칸은 좁은 화면에서 가로 스크롤 대신 세로로 */
+  .hd.hd-app .compare { grid-template-columns: 1fr; }
+}
