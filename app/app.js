@@ -849,11 +849,11 @@
     }
 
     var on = !!(c && c.enabled);
-    var toggleHTML = '<div style="display:flex;align-items:center;gap:10px;margin:8px 0 12px">' +
-      '<button type="button" class="' + (on ? "okbtn" : "ghost") + '" data-action="toggle-ai-enabled" ' +
-        'style="min-height:40px;padding:0 14px;margin:0">' +
-        (on ? "🟢 서버 공용 AI  켜짐 — 끄기" : "⚪ 서버 공용 AI  꺼짐 — 켜기") + '</button>' +
-      '<span class="muted">' + (on ? "모든 사용자가 사진 첨부 시 AI 분석" : "지금은 규칙 엔진만 동작") + '</span>' +
+    var toggleHTML = '<div class="ai-toggle-row">' +
+      '<span class="ai-toggle-state">' + (on ? "🟢 켜짐" : "⚪ 꺼짐") + '</span>' +
+      '<button type="button" class="ai-toggle-btn ' + (on ? "ghost" : "okbtn") + '" data-action="toggle-ai-enabled">' +
+        (on ? "끄기" : "켜기") + '</button>' +
+      '<span class="muted ai-toggle-hint">' + (on ? "모든 사용자가 사진 첨부 시 AI 분석" : "지금은 규칙 엔진만 동작") + '</span>' +
       '</div>';
 
     return '<div class="notice" style="border:1px solid var(--line);padding:12px;border-radius:8px;margin-bottom:12px">' +

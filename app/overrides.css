@@ -111,6 +111,17 @@ body.hd.hd-app > main {
   border-radius: 7px; padding: 4px 10px; font-size: 12.5px; font-weight: 650; cursor: pointer;
 }
 
+/* ── 서버 공용 AI 켜기/끄기 토글 — 버튼은 작게, 설명은 아래 줄로 ───────── */
+.hd.hd-app .ai-toggle-row {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 8px 0 12px;
+}
+.hd.hd-app .ai-toggle-state { font-weight: 800; font-size: 14px; white-space: nowrap; }
+.hd.hd-app .ai-toggle-btn {
+  width: auto; flex: 0 0 auto; margin: 0;
+  min-height: 40px; padding: 0 18px; font-size: 14px; font-weight: 700; white-space: nowrap;
+}
+.hd.hd-app .ai-toggle-hint { flex: 1 1 100%; font-size: 12.5px; }
+
 /* ════════════════════════════════════════════════════════════════════════
    이 앱은 **라이트 단일** 로 디자인됐다 (style.css 에 다크 값이 없고,
    하드코딩된 흰 배경이 많다). 공통 테마(hd-theme.css)의 자동 다크는
