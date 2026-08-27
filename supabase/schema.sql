@@ -315,6 +315,11 @@ create trigger knowledge_guard before insert or update on public.knowledge
 -- 3. 뷰
 -- ----------------------------------------------------------------------------
 
+-- issue 테이블에 컬럼이 추가되면 `select i.*` 로 펼쳐지는 뷰의 컬럼 순서가 바뀌어
+-- `create or replace view` 가 거부한다("cannot change name of view column").
+-- 그래서 매번 먼저 떨어뜨린 뒤 다시 만든다 (의존 순서: candidates → issue_view).
+drop view if exists public.knowledge_candidates;
+drop view if exists public.issue_view;
 
 -- ⚠ 뷰에는 `with (security_invoker = true)` 를 붙인다.
 --   붙이지 않으면 뷰는 **만든 사람(postgres)의 권한**으로 돌아, 뷰를 읽을 수 있는
