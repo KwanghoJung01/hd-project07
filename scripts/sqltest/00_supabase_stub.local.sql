@@ -50,5 +50,13 @@ returns uuid language sql stable set search_path = auth, public as $fn$
   select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid;
 $fn$;
 
+-- Supabase 는 auth.jwt() 로 현재 토큰 클레임(jsonb)을 준다. 익명 세션 판별(is_anonymous)에 쓴다.
+create or replace function auth.jwt()
+returns jsonb language sql stable set search_path = auth, public as $fn$
+  select coalesce(
+    nullif(current_setting('request.jwt.claims', true), '')::jsonb,
+    '{}'::jsonb);
+$fn$;
+
 grant usage on schema auth to anon, authenticated, service_role;
 grant select on auth.users to authenticated, service_role;

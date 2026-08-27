@@ -90,18 +90,36 @@
     return db().auth.signInWithPassword({ email: email, password: password })
       .then(function (r) { if (r.error) throw r.error; return r.data; });
   }
+  /**
+   * 접수자용 익명 로그인. 계정을 만들지 않고도 서버에 이슈를 넣고, 나중에 이 기기에서
+   * 진행 상황을 볼 수 있게 한다(전문가에게 넘어가는 것이 이 앱의 목적 — DP-7).
+   * Supabase 대시보드에서 "Anonymous sign-ins" 를 켜야 동작한다.
+   */
+  function signInAnonymously() {
+    return db().auth.signInAnonymously().then(function (r) {
+      if (r.error) throw r.error;
+      var u = r.data && r.data.user;
+      me = { user_id: u ? u.id : null, name: '현장 접수자', email: null, roles: [], anon: true };
+      return me;
+    });
+  }
   function signOut() {
     return db().auth.signOut().then(function () { me = null; });
   }
   function session() {
     return db().auth.getSession().then(function (r) { return r.data && r.data.session; });
   }
+  function isAnon() { return !!(me && me.anon); }
 
-  /** app_user 에서 내 역할을 읽는다. 등록 안 됐으면 null — 화면이 그걸 알려 준다. */
+  /** app_user 에서 내 역할을 읽는다. 익명 세션이면 접수자로 본다(등록 행 없음). */
   function loadMe() {
     return db().auth.getUser().then(function (r) {
       var u = r.data && r.data.user;
       if (!u) return null;
+      if (u.is_anonymous) {
+        me = { user_id: u.id, name: '현장 접수자', email: null, roles: [], anon: true };
+        return me;
+      }
       return db().from('app_user').select('*').eq('user_id', u.id).maybeSingle()
         .then(function (p) {
           if (p.error) throw p.error;
@@ -272,7 +290,12 @@
     };
     // 새 이슈는 항상 DRAFT 로 넣는다. 목표 상태로 바로 넣으면 관문이 막는다 —
     // 결론·회신이 아직 안 들어갔기 때문이다. 상태는 ③단계에서 올린다.
-    if (dbIdByCode[code] == null) head.status = 'DRAFT';
+    // 익명 접수자는 자기 uid 를 reporter_id 로 찍어야 RLS 가 insert 를 허용하고,
+    // 이후 이 기기에서 자기 이슈만 읽을 수 있다.
+    if (dbIdByCode[code] == null) {
+      head.status = 'DRAFT';
+      if (isAnon() && me.user_id) head.reporter_id = me.user_id;
+    }
 
     var p = dbIdByCode[code] == null
       ? db().from('issue').insert(head).select('id, status').single()
@@ -339,8 +362,9 @@
       });
       return chain.then(function () { return id; });
     }).then(function (id) {
-      // Knowledge — 고객이 확인한 사례만. DB 트리거가 한 번 더 막는다.
-      if (issue.status === 'KNOWLEDGE_READY' && issue.knowledge_entry) {
+      // Knowledge — 고객이 확인한 사례만. DB 트리거가 한 번 더 막고, RLS 로 전문가만 쓴다.
+      // 익명 접수자 세션은 여기 오지 않지만(승격은 전문가 행위) 방어적으로 건너뛴다.
+      if (!isAnon() && issue.status === 'KNOWLEDGE_READY' && issue.knowledge_entry) {
         var c2 = conclusionOf(issue) || {};
         return db().from('knowledge').upsert({
           issue_id: id,
@@ -383,7 +407,8 @@
 
   root.FISupabase = {
     available: available, client: db,
-    signIn: signIn, signOut: signOut, session: session, loadMe: loadMe, whoami: whoami,
+    signIn: signIn, signInAnonymously: signInAnonymously, isAnon: isAnon,
+    signOut: signOut, session: session, loadMe: loadMe, whoami: whoami,
     loadDb: loadDb, saveDb: saveDb, pathTo: pathTo,
     uploadMedia: uploadMedia, signedUrl: signedUrl,
     attachmentPaths: attachmentPaths, mediaPath: mediaPath,

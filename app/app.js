@@ -1799,9 +1799,13 @@
   });
 
   document.getElementById("mode-reporter").addEventListener("click", function () {
-    state.mode = "reporter"; state.view = "c04"; state.hl = null; render();
+    state.mode = "reporter"; state.view = "c04"; state.hl = null;
+    if (SERVER) banner("server", isAnonSession() ? "접수 내용은 전문가에게 전달됩니다." : undefined);
+    render();
   });
   document.getElementById("mode-expert").addEventListener("click", function () {
+    // 서버 모드에서 전문가 화면은 인증이 필요하다. 익명(접수자) 세션이면 로그인 화면으로.
+    if (SERVER && isAnonSession()) { renderLogin(); return; }
     state.mode = "expert"; state.view = "e01"; state.hl = null; render();
   });
   document.getElementById("btn-reset").addEventListener("click", function () {
@@ -1875,10 +1879,16 @@
   window.addEventListener("resize", syncChrome);
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(syncChrome);
 
+  /** 지금 익명(접수자) 세션인지 */
+  function isAnonSession() {
+    return !!(window.FISupabase && window.FISupabase.isAnon && window.FISupabase.isAnon());
+  }
+
   /** 역할에 없는 모드는 버튼째 감춘다 (열어 두면 저장만 막혀 이유를 알 수 없다) */
   function applyRoles() {
     var r = USER.roles || [];
-    var only = SERVER && r.length > 0;
+    // 익명 접수자에게는 [전문가] 버튼을 남겨 둔다 — 그 버튼이 곧 로그인 입구다.
+    var only = SERVER && r.length > 0 && !isAnonSession();
     var mr = document.getElementById("mode-reporter");
     var me_ = document.getElementById("mode-expert");
     if (mr) mr.hidden = only && r.indexOf("reporter") === -1;
@@ -1890,7 +1900,8 @@
   function paintWho() {
     var slot = document.getElementById("auth-slot");
     if (!slot) return;
-    if (!SERVER) { slot.innerHTML = ""; return; }
+    // 데모 모드거나 익명 접수자면 계정 표시가 없다 (로그인 입구는 [전문가] 버튼).
+    if (!SERVER || isAnonSession()) { slot.innerHTML = ""; return; }
     var roles = (USER.roles || []).join("·") || "역할 없음";
     slot.innerHTML =
       '<span class="auth-who">' + esc(USER.name) + ' <span class="role">' + esc(roles) + '</span></span>' +
@@ -1901,55 +1912,94 @@
     });
   }
 
-  /** 로그인 화면 — 서버 모드인데 세션이 없을 때만 본문 자리에 그린다 */
+  /**
+   * 로그인 화면 — **전문가 화면에 들어갈 때만** 뜬다. 초기 화면(접수자)은 로그인 없이 연다.
+   * [← 접수자 화면으로] 로 언제든 빠져나갈 수 있다.
+   */
   function renderLogin(msg) {
     banner("login");
     root.innerHTML =
       '<section class="card" style="max-width:420px;margin:32px auto">' +
-        '<h2>로그인</h2>' +
-        '<p class="muted">현장에서 접수한 이슈를 전문가가 이어받으려면 계정이 필요합니다. ' +
-          '계정은 관리자가 Supabase 대시보드에서 만들어 줍니다.</p>' +
+        '<h2>전문가 로그인</h2>' +
+        '<p class="muted">현장에서 접수한 이슈를 이어받아 처리하려면 계정이 필요합니다. ' +
+          '계정은 관리자가 Supabase 대시보드에서 만들어 줍니다. ' +
+          '접수만 하실 분은 로그인 없이 접수자 화면을 쓰시면 됩니다.</p>' +
         (msg ? '<p class="warn-line" style="color:#c8341f">' + esc(msg) + '</p>' : '') +
         '<label class="fld" for="li-email">이메일</label>' +
         '<input id="li-email" type="text" autocomplete="username" inputmode="email">' +
         '<label class="fld" for="li-pw">비밀번호</label>' +
         '<input id="li-pw" type="password" autocomplete="current-password">' +
-        '<div style="margin-top:14px"><button id="li-go" class="primary" type="button">로그인</button></div>' +
+        '<div style="margin-top:14px;display:flex;gap:8px;align-items:center">' +
+          '<button id="li-go" class="primary" type="button">로그인</button>' +
+          '<button id="li-back" class="ghost" type="button">← 접수자 화면으로</button>' +
+        '</div>' +
       '</section>';
     var go = document.getElementById("li-go");
     var pw = document.getElementById("li-pw");
+    var back = document.getElementById("li-back");
     function submit() {
       var em = (document.getElementById("li-email") || {}).value || "";
       var pass = (pw || {}).value || "";
       if (!em.trim() || !pass) { renderLogin("이메일과 비밀번호를 모두 입력하세요."); return; }
       go.disabled = true; go.textContent = "확인 중…";
       window.FISupabase.signIn(em.trim(), pass)
-        .then(startServer)
+        .then(function () { return window.FISupabase.loadMe(); })
+        .then(startExpert)
         .catch(function (e) {
           renderLogin("로그인하지 못했습니다 — " + ((e && e.message) || e));
         });
     }
     if (go) go.addEventListener("click", submit);
     if (pw) pw.addEventListener("keydown", function (ev) { if (ev.key === "Enter") submit(); });
+    // 익명 세션은 그대로 두고 접수자 화면으로만 되돌린다
+    if (back) back.addEventListener("click", function () {
+      state.mode = "reporter"; state.view = "c04";
+      if (SERVER) { banner("server", "접수 내용은 전문가에게 전달됩니다."); } else { banner("demo"); }
+      render();
+    });
   }
 
-  /** 로그인 뒤 — 내 역할을 읽고 서버 자료로 화면을 채운다 */
-  function startServer() {
+  /** 익명(접수자) 세션으로 서버 자료(내 이슈만)를 불러와 접수자 화면을 연다 */
+  function startReporter() {
+    return window.FISupabase.loadDb().then(function (loaded) {
+      SERVER = true;
+      window.FISupabase.setMode("server");
+      db = loaded;
+      USER = { name: "현장 접수자", roles: ["reporter"] };
+      state.mode = "reporter";
+      state.view = "c04";
+      banner("server", "접수 내용은 전문가에게 전달됩니다. 이 기기에서 진행 상황을 볼 수 있어요.");
+      applyRoles();
+      paintWho();
+      render();
+    }).catch(function (err) {
+      // 서버가 안 되어도 접수 자체는 막지 않는다 — 이 브라우저에 저장하고 계속
+      var msg = (err && err.message) || String(err);
+      var hint = /relation .* does not exist|schema cache/i.test(msg)
+        ? " supabase/schema.sql 을 SQL Editor 에서 실행했는지 확인하세요." : "";
+      banner("demo", "(연결 실패: " + msg + ")" + hint);
+      SERVER = false;
+      state.mode = "reporter"; state.view = "c04";
+      render();
+    });
+  }
+
+  /** 전문가 로그인 뒤 — 역할을 읽고 서버 자료(전체 큐)로 화면을 채운다 */
+  function startExpert(m) {
     banner("connecting");
-    return window.FISupabase.loadMe().then(function (m) {
-      if (m) USER = { name: m.name || m.email, roles: m.roles || [] };
-      if (!m || !(m.roles || []).length) {
-        banner("server", "이 계정은 아직 역할이 없습니다 — 관리자에게 app_user 등록을 요청하세요.");
-      }
-      return window.FISupabase.loadDb();
-    }).then(function (loaded) {
+    if (m) USER = { name: m.name || m.email, roles: m.roles || [] };
+    if (!m || m.anon || !(m.roles || []).length) {
+      banner("server", "이 계정은 아직 역할이 없습니다 — 관리자에게 app_user 등록을 요청하세요.");
+    }
+    return window.FISupabase.loadDb().then(function (loaded) {
       SERVER = true;
       window.FISupabase.setMode("server");
       db = loaded;
       banner("server");
+      state.mode = "expert";
       applyRoles();
       paintWho();
-      state.view = state.mode === "expert" ? "e01" : "c04";
+      state.view = "e01";
       render();
     }).catch(function (err) {
       var msg = (err && err.message) || String(err);
@@ -1973,8 +2023,17 @@
     }
     banner("connecting");
     window.FISupabase.session().then(function (sess) {
-      if (!sess) { renderLogin(); return; }
-      return startServer();
+      // 세션이 없으면 로그인 벽을 세우지 않고 익명 세션으로 바로 접수자 화면을 연다.
+      if (!sess) {
+        return window.FISupabase.signInAnonymously().then(startReporter).catch(function (e) {
+          // 익명 로그인이 꺼져 있는 등 — 로컬 데모로라도 접수는 되게
+          banner("demo", "(익명 접속 불가: " + ((e && e.message) || e) + " — Supabase Auth 에서 Anonymous sign-ins 를 켜세요)");
+          render();
+        });
+      }
+      return window.FISupabase.loadMe().then(function (m) {
+        return (!m || m.anon) ? startReporter() : startExpert(m);
+      });
     }).catch(function (e) {
       banner("demo", "(연결 실패: " + ((e && e.message) || e) + ")");
       render();

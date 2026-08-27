@@ -167,6 +167,19 @@ returns boolean language sql stable security definer set search_path = public as
                   where u.user_id = auth.uid() and u.active and p_role = any(u.roles));
 $fn$;
 
+-- 익명 로그인(접수자)인지. anon 역할이 아니라 "익명 세션으로 로그인한 authenticated" 다.
+-- 접수자는 계정 없이 이슈를 넣되, 자기가 넣은 것만 다시 볼 수 있어야 한다.
+create or replace function public.is_anon_user()
+returns boolean language sql stable set search_path = public as $fn$
+  select coalesce((auth.jwt() ->> 'is_anonymous')::boolean, false);
+$fn$;
+
+-- 전문가/관리자(정식 계정)인지 — 정책에서 반복되므로 묶어 둔다
+create or replace function public.is_staff()
+returns boolean language sql stable security definer set search_path = public as $fn$
+  select public.is_admin() or public.has_role('expert') or public.has_role('approver');
+$fn$;
+
 /**
  * 상태 전이 규칙.
  *
@@ -341,61 +354,92 @@ alter table public.attachment enable row level security;
 alter table public.log        enable row level security;
 alter table public.admin      enable row level security;
 
--- 이슈: 로그인 사용자는 다 읽고, 접수자가 만들고, 전문가·관리자가 고친다
+-- 이슈 접근 규칙
+--   · 전문가/관리자 : 전체 큐를 읽고 고친다
+--   · 접수자(익명 세션) : **자기가 넣은 이슈만** 읽고, 넣을 때 자기 uid 를 reporter_id 로 찍는다
+--   화면에서 아무리 막아도 API 를 직접 부르면 뚫리므로 여기서 잠근다.
 drop policy if exists issue_read   on public.issue;
 drop policy if exists issue_write  on public.issue;
 drop policy if exists issue_update on public.issue;
 drop policy if exists issue_delete on public.issue;
-create policy issue_read   on public.issue for select to authenticated using (true);
+create policy issue_read   on public.issue for select to authenticated
+  using (public.is_staff() or reporter_id = auth.uid());
 create policy issue_write  on public.issue for insert to authenticated
-  with check (public.has_role('reporter') or public.is_admin());
+  with check (
+    public.is_staff()
+    or (reporter_id = auth.uid())                 -- 익명 접수자: 반드시 자기 것으로 찍어야 통과
+  );
 create policy issue_update on public.issue for update to authenticated
-  using (public.is_admin() or public.has_role('expert') or reporter_id = auth.uid())
-  with check (public.is_admin() or public.has_role('expert') or reporter_id = auth.uid());
+  using (public.is_staff() or reporter_id = auth.uid())
+  with check (public.is_staff() or reporter_id = auth.uid());
 create policy issue_delete on public.issue for delete to authenticated
   using (public.is_admin());
 
--- 결론은 전문가만
+-- 결론은 전문가만 (접수자는 읽지도 못한다 — 내부 판단 근거)
 drop policy if exists conclusion_read   on public.conclusion;
 drop policy if exists conclusion_write  on public.conclusion;
 drop policy if exists conclusion_update on public.conclusion;
-create policy conclusion_read   on public.conclusion for select to authenticated using (true);
+create policy conclusion_read   on public.conclusion for select to authenticated using (public.is_staff());
 create policy conclusion_write  on public.conclusion for insert to authenticated
   with check (public.has_role('expert') or public.is_admin());
 create policy conclusion_update on public.conclusion for update to authenticated
   using (public.has_role('expert') or public.is_admin())
   with check (public.has_role('expert') or public.is_admin());
 
--- 나머지 부속 표
+-- 이슈에 매달린 부속 표(질문·회신·해결확인·첨부):
+--   전문가/관리자는 전부, 접수자는 **자기 이슈의 것만**.
+--   ⚠ format() 은 위치 지정자(%1$I)와 순서 지정자(%I)를 섞을 수 없다 → 전부 위치 지정.
 do $rls$
 declare t text;
+declare own_clause text :=
+  ' or exists (select 1 from public.issue i where i.id = %2$I.issue_id and i.reporter_id = auth.uid())';
 begin
-  foreach t in array array['question','reply','resolution',
-                           'knowledge','attachment']
+  foreach t in array array['question','reply','resolution','attachment']
   loop
-    execute format('drop policy if exists %I on public.%I', t || '_read',   t);
-    execute format('drop policy if exists %I on public.%I', t || '_write',  t);
-    execute format('drop policy if exists %I on public.%I', t || '_update', t);
-    execute format('drop policy if exists %I on public.%I', t || '_delete', t);
-    execute format('create policy %I on public.%I for select to authenticated using (true)', t || '_read', t);
-    execute format('create policy %I on public.%I for insert to authenticated with check (true)', t || '_write', t);
-    execute format('create policy %I on public.%I for update to authenticated using (true) with check (true)', t || '_update', t);
-    execute format('create policy %I on public.%I for delete to authenticated using (public.is_admin())', t || '_delete', t);
+    execute format('drop policy if exists %1$I on public.%2$I', t || '_read',   t);
+    execute format('drop policy if exists %1$I on public.%2$I', t || '_write',  t);
+    execute format('drop policy if exists %1$I on public.%2$I', t || '_update', t);
+    execute format('drop policy if exists %1$I on public.%2$I', t || '_delete', t);
+    execute format(
+      'create policy %1$I on public.%2$I for select to authenticated using (public.is_staff()' || own_clause || ')',
+      t || '_read', t);
+    execute format(
+      'create policy %1$I on public.%2$I for insert to authenticated with check (public.is_staff()' || own_clause || ')',
+      t || '_write', t);
+    execute format(
+      'create policy %1$I on public.%2$I for update to authenticated using (public.is_staff()' || own_clause || ') with check (true)',
+      t || '_update', t);
+    execute format(
+      'create policy %1$I on public.%2$I for delete to authenticated using (public.is_admin())',
+      t || '_delete', t);
   end loop;
 end;
 $rls$;
 
+-- Knowledge 는 검증된 재사용 사례 모음 — 민감 정보 아님. 전문가/관리자만 다룬다.
+drop policy if exists knowledge_read   on public.knowledge;
+drop policy if exists knowledge_write  on public.knowledge;
+drop policy if exists knowledge_update on public.knowledge;
+drop policy if exists knowledge_delete on public.knowledge;
+create policy knowledge_read   on public.knowledge for select to authenticated using (public.is_staff());
+create policy knowledge_write  on public.knowledge for insert to authenticated with check (public.is_staff());
+create policy knowledge_update on public.knowledge for update to authenticated using (public.is_staff()) with check (public.is_staff());
+create policy knowledge_delete on public.knowledge for delete to authenticated using (public.is_admin());
+
 drop policy if exists app_user_read   on public.app_user;
 drop policy if exists app_user_write  on public.app_user;
 drop policy if exists app_user_update on public.app_user;
-create policy app_user_read   on public.app_user for select to authenticated using (true);
+-- 직원 명단(이름·이메일·역할)은 접수자에게 보일 필요가 없다 → 전문가/관리자만.
+--   (자기 행은 볼 수 있게 해 두면 loadMe 가 익명이 아닐 때 편하다)
+create policy app_user_read   on public.app_user for select to authenticated
+  using (public.is_staff() or user_id = auth.uid());
 create policy app_user_write  on public.app_user for insert to authenticated with check (public.is_admin());
 create policy app_user_update on public.app_user for update to authenticated
   using (public.is_admin()) with check (public.is_admin());
 
 drop policy if exists log_read  on public.log;
 drop policy if exists log_write on public.log;
-create policy log_read  on public.log for select to authenticated using (true);
+create policy log_read  on public.log for select to authenticated using (public.is_staff());
 create policy log_write on public.log for insert to authenticated with check (true);
 
 drop policy if exists admin_read on public.admin;
@@ -407,12 +451,16 @@ create policy admin_read on public.admin for select to authenticated using (publ
 
 revoke all on function public.is_admin()                    from public, anon;
 revoke all on function public.has_role(text)                from public, anon;
+revoke all on function public.is_anon_user()                from public, anon;
+revoke all on function public.is_staff()                    from public, anon;
 revoke all on function public.can_transition(text, text)    from public, anon;
 revoke all on function public.guard_transition()            from public, anon;
 revoke all on function public.guard_knowledge()             from public, anon;
 
 grant execute on function public.is_admin()                 to authenticated;
 grant execute on function public.has_role(text)             to authenticated;
+grant execute on function public.is_anon_user()             to authenticated;
+grant execute on function public.is_staff()                 to authenticated;
 grant execute on function public.can_transition(text, text) to authenticated;
 grant execute on function public.guard_transition()         to authenticated;
 grant execute on function public.guard_knowledge()          to authenticated;
@@ -490,9 +538,8 @@ drop policy if exists workspace_write  on workspace;
 drop policy if exists workspace_update on workspace;
 drop policy if exists workspace_delete on workspace;
 
--- 팀 내부 도구라 로그인한 사람은 읽고 쓴다.
--- 더 좁히려면 아래 정책의 using/with check 를 조직 규칙에 맞게 바꾸면 된다.
-create policy workspace_read   on workspace for select to authenticated using (true);
-create policy workspace_write  on workspace for insert to authenticated with check (true);
-create policy workspace_update on workspace for update to authenticated using (true) with check (true);
+-- 팀 내부 도구 — 전문가/관리자만. 익명 접수자에게는 팀 공용 문서를 열어 주지 않는다.
+create policy workspace_read   on workspace for select to authenticated using (public.is_staff());
+create policy workspace_write  on workspace for insert to authenticated with check (public.is_staff());
+create policy workspace_update on workspace for update to authenticated using (public.is_staff()) with check (public.is_staff());
 -- DELETE 정책은 두지 않는다. 팀 자료를 화면에서 통째로 지울 수 있으면 안 된다.
