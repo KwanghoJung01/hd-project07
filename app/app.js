@@ -648,7 +648,16 @@
   /** C-03 → Issue 생성 (FR-10: 사용자 접수 시점에 확정) */
   function submitIssue(opts) {
     var d = state.draft;
-    var no = db.next_no++;
+    state.busy = "접수 중…";
+    render();
+    // 이슈 번호는 **서버가 발급**한다. 기기·접수자마다 로컬 카운터를 쓰면 번호가 겹치고
+    // (익명 접수자는 RLS 로 자기 이슈만 보여 다들 1024부터 시작), code 유니크 제약에 걸려
+    // 서버 저장이 조용히 실패한다 → 새로고침 시 "접수한 이슈가 없습니다".
+    var getNo = (SERVER && window.FISupabase && window.FISupabase.nextNo)
+      ? window.FISupabase.nextNo().catch(function () { return db.next_no; })
+      : Promise.resolve(db.next_no);
+    return getNo.then(function (no) {
+    db.next_no = Math.max(db.next_no || 0, no + 1);
     var issue = {
       issue_id: no,
       status: "DRAFT",
@@ -716,12 +725,15 @@
     notify(issue, "담당 전문가가 확인 중입니다");
     db.issues.push(issue);
     Store.save(db);
+    state.busy = null;
     state.draft = null;
     state.draftMedia = [];
     state.c01Text = "";
     state.current = no;
     state.view = "cdetail";
+    render();
     return issue;
+    });
   }
 
   /* ────────────────────────── 렌더링 ────────────────────────── */
@@ -2147,7 +2159,18 @@
     return window.FISupabase.loadDb().then(function (loaded) {
       SERVER = true;
       window.FISupabase.setMode("server");
+      // 서버에 아직 안 올라간 로컬 이슈는 버리지 않는다 — 목록에 유지하고 다시 밀어 본다.
+      // (예전 번호 충돌로 저장 못 한 이슈가 새로고침 때 사라지는 것을 막는다)
+      var localDb = Store.load();
+      var onServer = {};
+      (loaded.issues || []).forEach(function (i) { onServer[i.issue_id] = true; });
+      var pending = (localDb.issues || []).filter(function (i) { return i && !onServer[i.issue_id]; });
+      if (pending.length) {
+        loaded.issues = (loaded.issues || []).concat(pending);
+        loaded.next_no = Math.max(loaded.next_no || 1024, localDb.next_no || 1024);
+      }
       db = loaded;
+      if (pending.length) Store.save(db);   // 서버에 재동기화 시도
       USER = { name: "현장 접수자", roles: ["reporter"] };
       state.mode = "reporter";
       state.view = "c04";

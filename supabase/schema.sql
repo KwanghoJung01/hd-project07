@@ -186,6 +186,21 @@ returns boolean language sql stable security definer set search_path = public as
   select public.is_admin() or public.has_role('expert') or public.has_role('approver');
 $fn$;
 
+-- ── 이슈 번호 발급 ──────────────────────────────────────────────────────
+--   화면(로컬)에서 번호를 매기면, 익명 접수자는 RLS 로 "자기 이슈만" 보여
+--   다들 1024부터 시작 → code('ISSUE #1024') 유니크 제약 충돌 → 저장 실패 →
+--   새로고침 시 "접수한 이슈가 없습니다". 그래서 번호는 서버 시퀀스에서 원자적으로 뽑는다.
+create sequence if not exists public.issue_no_seq;
+-- 이미 들어가 있는 최대 번호 위로 시퀀스를 올린다 (재실행 안전; is_called=true 로 다음 호출이 +1)
+select setval('public.issue_no_seq',
+  coalesce((select max(nullif(regexp_replace(code, '\D', '', 'g'), '')::bigint)
+              from public.issue where code ~ '^ISSUE #[0-9]+$'), 1024), true);
+
+create or replace function public.next_issue_no()
+returns bigint language sql security definer set search_path = public as $fn$
+  select nextval('public.issue_no_seq');
+$fn$;
+
 /**
  * 상태 전이 규칙.
  *
@@ -464,6 +479,7 @@ revoke all on function public.is_admin()                    from public, anon;
 revoke all on function public.has_role(text)                from public, anon;
 revoke all on function public.is_anon_user()                from public, anon;
 revoke all on function public.is_staff()                    from public, anon;
+revoke all on function public.next_issue_no()               from public, anon;
 revoke all on function public.can_transition(text, text)    from public, anon;
 revoke all on function public.guard_transition()            from public, anon;
 revoke all on function public.guard_knowledge()             from public, anon;
@@ -472,6 +488,7 @@ grant execute on function public.is_admin()                 to authenticated;
 grant execute on function public.has_role(text)             to authenticated;
 grant execute on function public.is_anon_user()             to authenticated;
 grant execute on function public.is_staff()                 to authenticated;
+grant execute on function public.next_issue_no()            to authenticated;
 grant execute on function public.can_transition(text, text) to authenticated;
 grant execute on function public.guard_transition()         to authenticated;
 grant execute on function public.guard_knowledge()          to authenticated;

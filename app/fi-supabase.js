@@ -404,6 +404,17 @@
       });
   }
 
+  /**
+   * 다음 이슈 번호 — 서버 시퀀스에서 원자적으로 뽑는다.
+   * 기기·접수자마다 로컬 카운터를 쓰면 번호가 겹쳐 code 유니크 제약에 걸린다.
+   */
+  function nextNo() {
+    return db().rpc('next_issue_no').then(function (r) {
+      if (r.error) throw r.error;
+      return typeof r.data === 'number' ? r.data : parseInt(r.data, 10);
+    });
+  }
+
   function setMode(m) { mode = m; }
   function getMode() { return mode; }
 
@@ -411,7 +422,7 @@
     available: available, client: db,
     signIn: signIn, signInAnonymously: signInAnonymously, isAnon: isAnon,
     signOut: signOut, session: session, loadMe: loadMe, whoami: whoami,
-    loadDb: loadDb, saveDb: saveDb, pathTo: pathTo,
+    loadDb: loadDb, saveDb: saveDb, nextNo: nextNo, pathTo: pathTo,
     uploadMedia: uploadMedia, signedUrl: signedUrl,
     attachmentPaths: attachmentPaths, mediaPath: mediaPath,
     conclusionOf: conclusionOf, replyOf: replyOf, resolutionOf: resolutionOf,
