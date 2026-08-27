@@ -2160,12 +2160,23 @@
     render();
   });
   document.getElementById("btn-reset").addEventListener("click", function () {
-    if (!confirm("모든 로컬 데이터(이슈 + 첨부 미디어)를 초기화할까요?")) return;
+    var serverNote = SERVER
+      ? "\n\n※ 서버에 저장된 이슈 자체는 지워지지 않습니다(전문가 화면엔 그대로 남습니다). " +
+        "접수 번호는 서버가 매기므로 되돌아가지 않고 계속 커집니다. " +
+        "이 기기는 '새 익명 접수'로 다시 시작합니다."
+      : "";
+    if (!confirm("이 기기의 접수 이력·첨부를 화면에서 지웁니다." + serverNote)) return;
     Store.reset();
     db = Store.load();
     if (window.FI_MEDIA) window.FI_MEDIA.clear().catch(function () {});
     state.mode = "reporter"; state.view = "c04"; state.current = null; state.draft = null;
     state.draftMedia = []; state.c01Text = ""; state.mediaURLs = {}; state.notice = null;
+    // 서버 모드면 익명 세션까지 갈아 새 uid 로 시작한다 → 이전 접수가 화면에 다시 안 나타난다
+    if (SERVER && window.FISupabase && window.FISupabase.signOut) {
+      window.FISupabase.signOut().then(function () { location.reload(); })
+        .catch(function () { location.reload(); });
+      return;
+    }
     render();
   });
   var settingsBtn = document.getElementById("btn-settings");
